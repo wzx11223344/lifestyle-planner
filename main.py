@@ -2,1261 +2,1758 @@
 # -*- coding: utf-8 -*-
 """
 生活服务工具 - lifestyle-planner
-提供10个生活服务工具：食谱推荐、健身计划、预算追踪、旅行规划、餐饮计划、
-习惯追踪、睡眠分析、购物清单、穿搭推荐、订阅管理。
+提供10个高级生活算法工具：营养计算器(食物数据库)、BMI健康评估(Deurenberg体脂+Mifflin-St Jeor BMR)、
+健身计划生成器(渐进过载+周期化)、预算优化器(50/30/20+线性规划)、餐饮计划器(约束满足+贪心算法)、
+习惯追踪分析器(马尔可夫链预测)、睡眠质量分析器(多维评分)、旅行路线优化器(TSP最近邻+2-opt改进)、
+购物清单优化器(多店铺比价+贪心)、订阅费用分析器(ROI计算)。
 
-无外部依赖，仅使用Python标准库。
+全部使用Python标准库实现，无外部依赖。
 """
 
 import json
+import math
 import random
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 
 # ---------------------------------------------------------------------------
-# 1. 食谱推荐
+# 1. 营养计算器
 # ---------------------------------------------------------------------------
-def recipe_recommender(ingredients, cuisine="中餐", dietary=None, num_results=5):
+def nutrition_calculator(food_items, daily_targets):
     """
-    食谱推荐：根据可用食材、菜系和饮食偏好推荐食谱。
+    营养计算器：基于食物数据库计算每日营养摄入，对比目标值，输出分析报告。
+
+    算法原理:
+        - 食物数据库: 内置常见食物的营养成分表（每100g）
+        - 营养加总: 按食物重量比例计算各营养素摄入量
+        - 缺口分析: 计算实际摄入与目标的差值和百分比
+        - 评分: 各营养素达标率加权平均 → 0-100营养评分
 
     参数:
-        ingredients (list[str]): 可用食材列表，如 ["鸡肉", "番茄", "鸡蛋"]。
-        cuisine (str): 菜系偏好，如 "中餐"/"西餐"/"日料"/"韩餐"，默认 "中餐"。
-        dietary (str): 饮食限制，如 "素食"/"低脂"/"无麸质"/"低碳水"，为None时无限制。
-        num_results (int): 返回食谱数量，默认5。
+        food_items (list[dict]): 食物列表，每项含:
+            - name (str): 食物名称
+            - amount (float): 重量(g)
+        daily_targets (dict): 每日营养目标，含calories/protein/fat/carbs/fiber等
 
     返回:
-        list[dict]: 推荐食谱列表，每个食谱含名称、食材、步骤和营养信息。
+        dict: 营养分析报告，含intake_summary/nutrient_gaps/score/recommendations。
     """
-    recipe_db = {
-        "中餐": [
-            {"name": "番茄炒鸡蛋", "ingredients": ["番茄", "鸡蛋", "葱", "盐", "糖"],
-             "difficulty": "简单", "time_minutes": 15, "calories": 200,
-             "tags": ["家常菜", "快手菜"]},
-            {"name": "红烧鸡块", "ingredients": ["鸡肉", "酱油", "糖", "姜", "蒜", "料酒"],
-             "difficulty": "中等", "time_minutes": 40, "calories": 350,
-             "tags": ["家常菜", "下饭菜"]},
-            {"name": "清蒸鱼", "ingredients": ["鱼", "葱", "姜", "蒸鱼豉油", "料酒"],
-             "difficulty": "中等", "time_minutes": 25, "calories": 180,
-             "tags": ["健康", "低脂"]},
-            {"name": "麻婆豆腐", "ingredients": ["豆腐", "猪肉末", "豆瓣酱", "花椒", "蒜"],
-             "difficulty": "中等", "time_minutes": 30, "calories": 280,
-             "tags": ["川菜", "下饭菜"]},
-            {"name": "青菜豆腐汤", "ingredients": ["青菜", "豆腐", "盐", "香油"],
-             "difficulty": "简单", "time_minutes": 15, "calories": 120,
-             "tags": ["素食", "低脂", "汤品"]},
-            {"name": "土豆炖牛肉", "ingredients": ["牛肉", "土豆", "胡萝卜", "酱油", "八角"],
-             "difficulty": "中等", "time_minutes": 60, "calories": 400,
-             "tags": ["炖菜", "高蛋白"]},
-            {"name": "凉拌黄瓜", "ingredients": ["黄瓜", "蒜", "醋", "辣椒油", "盐"],
-             "difficulty": "简单", "time_minutes": 10, "calories": 80,
-             "tags": ["素食", "凉菜", "低脂"]},
-            {"name": "蛋炒饭", "ingredients": ["鸡蛋", "米饭", "葱", "盐", "酱油"],
-             "difficulty": "简单", "time_minutes": 15, "calories": 300,
-             "tags": ["主食", "快手菜"]}
-        ],
-        "西餐": [
-            {"name": "意大利面", "ingredients": ["意面", "番茄酱", "橄榄油", "蒜", "罗勒"],
-             "difficulty": "简单", "time_minutes": 25, "calories": 400,
-             "tags": ["主食", "素食"]},
-            {"name": "凯撒沙拉", "ingredients": ["生菜", "面包丁", "帕玛森芝士", "凯撒酱"],
-             "difficulty": "简单", "time_minutes": 15, "calories": 250,
-             "tags": ["沙拉", "低脂"]},
-            {"name": "牛排", "ingredients": ["牛排", "盐", "黑胡椒", "黄油", "蒜"],
-             "difficulty": "中等", "time_minutes": 20, "calories": 500,
-             "tags": ["高蛋白", "主菜"]},
-            {"name": "奶油蘑菇汤", "ingredients": ["蘑菇", "奶油", "洋葱", "面粉", "鸡汤"],
-             "difficulty": "中等", "time_minutes": 30, "calories": 300,
-             "tags": ["汤品", "西式"]}
-        ],
-        "日料": [
-            {"name": "寿司", "ingredients": ["米饭", "海苔", "三文鱼", "黄瓜", "醋"],
-             "difficulty": "中等", "time_minutes": 40, "calories": 300,
-             "tags": ["主食", "日式"]},
-            {"name": "味噌汤", "ingredients": ["味噌", "豆腐", "海带", "葱"],
-             "difficulty": "简单", "time_minutes": 10, "calories": 80,
-             "tags": ["汤品", "低脂", "日式"]}
-        ],
-        "韩餐": [
-            {"name": "泡菜炒饭", "ingredients": ["米饭", "泡菜", "鸡蛋", "葱", "香油"],
-             "difficulty": "简单", "time_minutes": 15, "calories": 350,
-             "tags": ["主食", "韩式"]},
-            {"name": "韩式拌饭", "ingredients": ["米饭", "菠菜", "胡萝卜", "牛肉", "鸡蛋", "辣酱"],
-             "difficulty": "中等", "time_minutes": 30, "calories": 400,
-             "tags": ["主食", "韩式"]}
-        ]
+    # 食物营养数据库（每100g营养成分）
+    food_db = {
+        "米饭": {"calories": 130, "protein": 2.7, "fat": 0.3, "carbs": 28.0, "fiber": 0.4, "calcium": 7, "iron": 0.2},
+        "面条": {"calories": 280, "protein": 9.0, "fat": 0.6, "carbs": 57.0, "fiber": 2.0, "calcium": 15, "iron": 1.5},
+        "鸡蛋": {"calories": 147, "protein": 12.6, "fat": 9.5, "carbs": 1.1, "fiber": 0.0, "calcium": 50, "iron": 1.8},
+        "牛奶": {"calories": 54, "protein": 3.0, "fat": 3.2, "carbs": 3.4, "fiber": 0.0, "calcium": 104, "iron": 0.1},
+        "鸡胸肉": {"calories": 165, "protein": 31.0, "fat": 3.6, "carbs": 0.0, "fiber": 0.0, "calcium": 15, "iron": 1.0},
+        "牛肉": {"calories": 250, "protein": 26.0, "fat": 15.0, "carbs": 0.0, "fiber": 0.0, "calcium": 18, "iron": 2.6},
+        "猪肉": {"calories": 395, "protein": 13.0, "fat": 37.0, "carbs": 0.0, "fiber": 0.0, "calcium": 6, "iron": 1.0},
+        "鱼": {"calories": 145, "protein": 22.0, "fat": 5.0, "carbs": 0.0, "fiber": 0.0, "calcium": 50, "iron": 0.8},
+        "豆腐": {"calories": 76, "protein": 8.1, "fat": 3.7, "carbs": 1.9, "fiber": 0.4, "calcium": 138, "iron": 1.5},
+        "西兰花": {"calories": 34, "protein": 2.8, "fat": 0.4, "carbs": 7.0, "fiber": 3.1, "calcium": 40, "iron": 0.5},
+        "菠菜": {"calories": 23, "protein": 2.9, "fat": 0.4, "carbs": 3.6, "fiber": 2.2, "calcium": 99, "iron": 2.7},
+        "番茄": {"calories": 18, "protein": 0.9, "fat": 0.2, "carbs": 3.9, "fiber": 1.2, "calcium": 10, "iron": 0.3},
+        "苹果": {"calories": 52, "protein": 0.3, "fat": 0.2, "carbs": 14.0, "fiber": 2.4, "calcium": 6, "iron": 0.1},
+        "香蕉": {"calories": 89, "protein": 1.1, "fat": 0.3, "carbs": 23.0, "fiber": 2.6, "calcium": 5, "iron": 0.3},
+        "面包": {"calories": 265, "protein": 9.0, "fat": 3.2, "carbs": 49.0, "fiber": 2.7, "calcium": 107, "iron": 3.6},
+        "燕麦": {"calories": 389, "protein": 16.9, "fat": 6.9, "carbs": 66.0, "fiber": 10.6, "calcium": 54, "iron": 4.7},
+        "坚果": {"calories": 607, "protein": 20.0, "fat": 54.0, "carbs": 13.0, "fiber": 7.0, "calcium": 100, "iron": 3.0},
+        "酸奶": {"calories": 72, "protein": 2.5, "fat": 2.7, "carbs": 9.3, "fiber": 0.0, "calcium": 120, "iron": 0.1},
     }
 
-    # 获取菜系食谱
-    recipes = recipe_db.get(cuisine, recipe_db["中餐"])
+    # 步骤1: 按食物重量计算营养摄入
+    intake = defaultdict(float)
+    food_details = []
+    unrecognized = []
 
-    # 饮食偏好过滤
-    if dietary:
-        dietary_lower = dietary.lower()
-        if "素食" in dietary or "vegetarian" in dietary_lower:
-            recipes = [r for r in recipes if "素食" in r.get("tags", []) or not any(
-                meat in str(r.get("ingredients", [])) for meat in ["猪肉", "牛肉", "鸡肉", "鱼", "三文鱼"]
-            )]
-        if "低脂" in dietary:
-            recipes = [r for r in recipes if "低脂" in r.get("tags", []) or r.get("calories", 999) < 250]
-        if "低碳水" in dietary:
-            recipes = [r for r in recipes if "主食" not in r.get("tags", [])]
+    for item in food_items:
+        name = item.get("name", "")
+        amount = item.get("amount", 100)
+        # 模糊匹配食物名称
+        matched_key = None
+        for db_key in food_db:
+            if db_key in name or name in db_key:
+                matched_key = db_key
+                break
 
-    # 食材匹配评分
-    scored = []
-    for recipe in recipes:
-        recipe_ingredients = recipe.get("ingredients", [])
-        user_has = set(ingredients)
-        recipe_needs = set(recipe_ingredients)
-
-        matched = user_has & recipe_needs
-        missing = recipe_needs - user_has
-        match_score = len(matched) / len(recipe_needs) if recipe_needs else 0
-
-        scored.append({
-            "name": recipe["name"],
-            "cuisine": cuisine,
-            "difficulty": recipe["difficulty"],
-            "time_minutes": recipe["time_minutes"],
-            "calories": recipe["calories"],
-            "tags": recipe.get("tags", []),
-            "ingredients_needed": recipe_ingredients,
-            "ingredients_matched": list(matched),
-            "ingredients_missing": list(missing),
-            "match_score": round(match_score * 100, 1),
-            "can_cook": len(missing) <= 2  # 缺2种以内可以烹饪
-        })
-
-    # 按匹配度排序
-    scored.sort(key=lambda x: x["match_score"], reverse=True)
-
-    return scored[:num_results]
-
-
-# ---------------------------------------------------------------------------
-# 2. 健身计划
-# ---------------------------------------------------------------------------
-def workout_planner(fitness_level="beginner", goal="general_fitness", days_per_week=3, equipment=None):
-    """
-    健身计划：根据健身水平、目标和设备生成训练计划。
-
-    参数:
-        fitness_level (str): 健身水平，可选 "beginner"（初级）、"intermediate"（中级）、
-            "advanced"（高级），默认 "beginner"。
-        goal (str): 健身目标，如 "general_fitness"（通用健身）、"muscle_gain"（增肌）、
-            "weight_loss"（减脂）、"endurance"（耐力），默认 "general_fitness"。
-        days_per_week (int): 每周训练天数，默认3。
-        equipment (list[str]): 可用设备列表，如 ["哑铃", "杠铃", "跑步机"]，为None时使用徒手训练。
-
-    返回:
-        dict: 健身计划，含每周训练安排和各动作详情。
-    """
-    if equipment is None:
-        equipment = ["徒手"]
-
-    # 训练动作库
-    exercise_db = {
-        "徒手": {
-            "beginner": [
-                {"name": "俯卧撑", "sets": 3, "reps": "8-12", "rest": "60秒", "muscle": "胸/三头"},
-                {"name": "深蹲", "sets": 3, "reps": "12-15", "rest": "60秒", "muscle": "腿/臀"},
-                {"name": "平板支撑", "sets": 3, "reps": "20-30秒", "rest": "45秒", "muscle": "核心"},
-                {"name": "弓步蹲", "sets": 3, "reps": "10每侧", "rest": "60秒", "muscle": "腿/臀"},
-                {"name": "仰卧卷腹", "sets": 3, "reps": "15-20", "rest": "45秒", "muscle": "腹"},
-                {"name": "开合跳", "sets": 3, "reps": "30秒", "rest": "30秒", "muscle": "全身/有氧"}
-            ],
-            "intermediate": [
-                {"name": "钻石俯卧撑", "sets": 4, "reps": "10-15", "rest": "60秒", "muscle": "三头/胸"},
-                {"name": "保加利亚深蹲", "sets": 4, "reps": "12每侧", "rest": "60秒", "muscle": "腿/臀"},
-                {"name": "侧平板支撑", "sets": 3, "reps": "30秒每侧", "rest": "45秒", "muscle": "核心"},
-                {"name": "登山者", "sets": 4, "reps": "30秒", "rest": "30秒", "muscle": "核心/有氧"},
-                {"name": "波比跳", "sets": 4, "reps": "10-15", "rest": "60秒", "muscle": "全身"}
-            ],
-            "advanced": [
-                {"name": "单臂俯卧撑", "sets": 4, "reps": "8-10每侧", "rest": "90秒", "muscle": "胸/三头"},
-                {"name": "手枪深蹲", "sets": 4, "reps": "8-10每侧", "rest": "90秒", "muscle": "腿"},
-                {"name": "前臂支撑", "sets": 3, "reps": "60秒", "rest": "45秒", "muscle": "核心"},
-                {"name": "倒立俯卧撑", "sets": 4, "reps": "6-10", "rest": "90秒", "muscle": "肩/三头"}
-            ]
-        },
-        "哑铃": [
-            {"name": "哑铃卧推", "sets": 4, "reps": "8-12", "rest": "90秒", "muscle": "胸"},
-            {"name": "哑铃弯举", "sets": 3, "reps": "10-15", "rest": "60秒", "muscle": "二头"},
-            {"name": "哑铃肩推", "sets": 4, "reps": "8-12", "rest": "90秒", "muscle": "肩"},
-            {"name": "哑铃硬拉", "sets": 4, "reps": "10-12", "rest": "90秒", "muscle": "背/腿"},
-            {"name": "哑铃飞鸟", "sets": 3, "reps": "12-15", "rest": "60秒", "muscle": "胸"}
-        ]
-    }
-
-    # 收集可用动作
-    available_exercises = []
-    for eq in equipment:
-        if eq in exercise_db:
-            eq_exercises = exercise_db[eq]
-            if isinstance(eq_exercises, dict):
-                available_exercises.extend(eq_exercises.get(fitness_level, eq_exercises.get("beginner", [])))
-            else:
-                available_exercises.extend(eq_exercises)
-
-    if not available_exercises:
-        available_exercises = exercise_db["徒手"]["beginner"]
-
-    # 根据目标调整
-    goal_config = {
-        "muscle_gain": {"sets_multiplier": 1.5, "rest": "90-120秒", "cardio": False},
-        "weight_loss": {"sets_multiplier": 1.0, "rest": "30-45秒", "cardio": True},
-        "endurance": {"sets_multiplier": 1.0, "rest": "30秒", "cardio": True, "reps_multiplier": 1.5},
-        "general_fitness": {"sets_multiplier": 1.0, "rest": "60秒", "cardio": True}
-    }
-    config = goal_config.get(goal, goal_config["general_fitness"])
-
-    # 生成每周计划
-    split_types = {
-        3: ["全身训练A", "全身训练B", "全身训练C"],
-        4: ["上半身", "下半身", "上半身", "下半身"],
-        5: ["胸", "背", "腿", "肩/臂", "核心/有氧"],
-        6: ["胸/三头", "背/二头", "腿", "肩", "手臂", "全身HIIT"]
-    }
-
-    day_names = split_types.get(days_per_week, split_types[3])
-    weekly_plan = []
-
-    for day_idx in range(days_per_week):
-        day_name = day_names[day_idx]
-        # 选择4-6个动作
-        num_exercises = min(6, max(4, len(available_exercises) // days_per_week + 2))
-        start = (day_idx * num_exercises) % len(available_exercises)
-        day_exercises = []
-
-        for i in range(num_exercises):
-            ex = available_exercises[(start + i) % len(available_exercises)]
-            adjusted_sets = max(3, int(ex["sets"] * config["sets_multiplier"]))
-            day_exercises.append({
-                "name": ex["name"],
-                "sets": adjusted_sets,
-                "reps": ex["reps"],
-                "rest": config["rest"],
-                "muscle_group": ex["muscle"]
+        if matched_key:
+            ratio = amount / 100.0
+            nutrients = food_db[matched_key]
+            food_intake = {}
+            for nutrient, value in nutrients.items():
+                actual = value * ratio
+                intake[nutrient] += actual
+                food_intake[nutrient] = round(actual, 1)
+            food_details.append({
+                "name": name, "matched": matched_key, "amount_g": amount,
+                "nutrients": food_intake
             })
+        else:
+            unrecognized.append(name)
 
-        day_plan = {
-            "day": day_idx + 1,
-            "type": day_name,
-            "exercises": day_exercises,
-            "estimated_duration": f"{num_exercises * 10 + 15}分钟"
+    # 步骤2: 计算营养缺口和达标率
+    gaps = {}
+    achievement_rates = []
+    for nutrient, target in daily_targets.items():
+        actual = intake.get(nutrient, 0)
+        gap = target - actual
+        rate = min(actual / target, 1.0) if target > 0 else 1.0
+        achievement_rates.append(rate)
+        gaps[nutrient] = {
+            "target": target,
+            "actual": round(actual, 1),
+            "gap": round(gap, 1),
+            "achievement_rate": round(rate * 100, 1),
+            "status": "达标" if rate >= 0.9 else ("接近" if rate >= 0.7 else "不足") if rate >= 0.5 else "严重不足"
         }
 
-        # 减脂/耐力目标增加有氧
-        if config.get("cardio") and day_idx % 2 == 0:
-            day_plan["cardio"] = {
-                "type": "HIIT" if goal == "weight_loss" else "慢跑",
-                "duration": "15-20分钟",
-                "intensity": "中高" if goal == "weight_loss" else "中等"
-            }
+    # 步骤3: 营养评分（加权平均达标率）
+    # 蛋白质和热量权重更高
+    weights = {"calories": 0.25, "protein": 0.25, "fat": 0.15, "carbs": 0.15, "fiber": 0.10, "calcium": 0.05, "iron": 0.05}
+    weighted_sum = 0.0
+    weight_total = 0.0
+    for nutrient, rate in zip(daily_targets.keys(), achievement_rates):
+        w = weights.get(nutrient, 0.05)
+        weighted_sum += rate * w
+        weight_total += w
+    score = round((weighted_sum / weight_total * 100) if weight_total > 0 else 0, 1)
 
-        weekly_plan.append(day_plan)
+    # 步骤4: 生成建议
+    recommendations = []
+    for nutrient, info in gaps.items():
+        if info["status"] == "严重不足":
+            recommendations.append(f"严重缺乏{nutrient}！建议增加富含{nutrient}的食物摄入")
+        elif info["status"] == "不足":
+            recommendations.append(f"{nutrient}摄入不足，还需补充{info['gap']:.1f}{nutrient}")
+    if not recommendations:
+        recommendations.append("营养摄入均衡，继续保持！")
 
     return {
-        "fitness_level": fitness_level,
+        "total_intake": {k: round(v, 1) for k, v in intake.items()},
+        "food_details": food_details,
+        "unrecognized_foods": unrecognized,
+        "nutrient_gaps": gaps,
+        "nutrition_score": score,
+        "grade": "优秀" if score >= 85 else ("良好" if score >= 70 else ("及格" if score >= 50 else "不及格")),
+        "recommendations": recommendations
+    }
+
+
+# ---------------------------------------------------------------------------
+# 2. BMI健康评估器
+# ---------------------------------------------------------------------------
+def bmi_health_assessor(weight, height, age, gender, activity_level):
+    """
+    BMI健康评估器：计算BMI+体脂率估算+基础代谢率(BMR)+每日总能量消耗(TDEE)。
+
+    算法原理:
+        - BMI: BMI = weight(kg) / height(m)^2
+        - 体脂率(Deurenberg公式): BF = 1.20*BMI + 0.23*age - 10.8*gender - 5.4
+          (gender: male=1, female=0)
+        - BMR(Mifflin-St Jeor): 
+          男性: BMR = 10*weight + 6.25*height - 5*age + 5
+          女性: BMR = 10*weight + 6.25*height - 5*age - 161
+        - TDEE: BMR * 活动系数（久坐1.2/轻度1.375/中度1.55/高度1.725/极高1.9）
+
+    参数:
+        weight (float): 体重(kg)
+        height (float): 身高(cm)
+        age (int): 年龄
+        gender (str): "male"或"female"
+        activity_level (str): 活动等级 "sedentary"/"light"/"moderate"/"active"/"very_active"
+
+    返回:
+        dict: 健康评估报告，含bmi/body_fat/bmr/tdee/health_category/recommendations。
+    """
+    # BMI分类标准
+    bmi_categories = [
+        (18.5, "偏瘦", "体重偏低，建议适当增加营养摄入"),
+        (24.0, "正常", "体重正常，保持健康的生活方式"),
+        (28.0, "超重", "体重超标，建议控制饮食并增加运动"),
+        (float('inf'), "肥胖", "体重严重超标，建议咨询医生制定减重计划")
+    ]
+
+    # 活动系数映射
+    activity_factors = {
+        "sedentary": 1.2,    # 久坐不动
+        "light": 1.375,       # 轻度活动（每周1-3天）
+        "moderate": 1.55,     # 中度活动（每周3-5天）
+        "active": 1.725,      # 高度活动（每周6-7天）
+        "very_active": 1.9    # 极高活动（体力工作者/运动员）
+    }
+
+    # 性别数值映射
+    gender_value = 1 if gender.lower() == "male" else 0
+    gender_label = "男性" if gender_value == 1 else "女性"
+
+    # 步骤1: 计算BMI
+    height_m = height / 100.0
+    bmi = weight / (height_m ** 2)
+
+    # 步骤2: 计算体脂率（Deurenberg公式）
+    # BF = 1.20*BMI + 0.23*age - 10.8*gender - 5.4
+    body_fat = 1.20 * bmi + 0.23 * age - 10.8 * gender_value - 5.4
+
+    # 步骤3: 计算基础代谢率BMR（Mifflin-St Jeor公式）
+    if gender_value == 1:
+        bmr = 10 * weight + 6.25 * height - 5 * age + 5
+    else:
+        bmr = 10 * weight + 6.25 * height - 5 * age - 161
+
+    # 步骤4: 计算每日总能量消耗TDEE
+    activity_factor = activity_factors.get(activity_level, 1.375)
+    tdee = bmr * activity_factor
+
+    # 步骤5: 确定BMI分类
+    bmi_category = None
+    for threshold, category, advice in bmi_categories:
+        if bmi < threshold:
+            bmi_category = (category, advice)
+            break
+
+    # 步骤6: 体脂率评估
+    if gender_value == 1:
+        fat_standards = [(10, "偏低"), (20, "正常"), (25, "偏高"), (float('inf'), "肥胖")]
+    else:
+        fat_standards = [(18, "偏低"), (28, "正常"), (33, "偏高"), (float('inf'), "肥胖")]
+
+    fat_status = None
+    for threshold, status in fat_standards:
+        if body_fat < threshold:
+            fat_status = status
+            break
+
+    # 步骤7: 计算理想体重范围
+    ideal_weight_min = 18.5 * (height_m ** 2)
+    ideal_weight_max = 24.0 * (height_m ** 2)
+    weight_diff = weight - (ideal_weight_min + ideal_weight_max) / 2
+
+    # 步骤8: 生成健康建议
+    recommendations = [bmi_category[1]]
+    if fat_status in ("偏高", "肥胖"):
+        recommendations.append(f"体脂率{body_fat:.1f}%偏高，建议通过有氧运动和饮食控制减脂")
+    if bmi >= 28:
+        caloric_deficit = min(500, tdee * 0.2)
+        recommendations.append(f"建议每日热量赤字{caloric_deficit:.0f}kcal，目标摄入{TDEE - caloric_deficit:.0f}kcal")
+    elif bmi < 18.5:
+        caloric_surplus = min(300, tdee * 0.15)
+        recommendations.append(f"建议每日热量盈余{caloric_surplus:.0f}kcal，目标摄入{TDEE + caloric_surplus:.0f}kcal")
+    recommendations.append(f"每日建议蛋白质摄入{weight * 1.2:.0f}g-{weight * 1.6:.0f}g")
+
+    return {
+        "bmi": round(bmi, 1),
+        "bmi_category": bmi_category[0],
+        "body_fat_percentage": round(body_fat, 1),
+        "body_fat_status": fat_status,
+        "bmr": round(bmr, 0),
+        "tdee": round(tdee, 0),
+        "ideal_weight_range": [round(ideal_weight_min, 1), round(ideal_weight_max, 1)],
+        "weight_status": "偏重" if weight_diff > 0 else "偏轻" if weight_diff < -2 else "理想",
+        "weight_difference": round(weight_diff, 1),
+        "activity_level": activity_level,
+        "gender": gender_label,
+        "recommendations": recommendations
+    }
+
+
+# ---------------------------------------------------------------------------
+# 3. 健身计划生成器
+# ---------------------------------------------------------------------------
+def fitness_plan_generator(goal, current_level, days_per_week, equipment):
+    """
+    健身计划生成器：基于目标+渐进过载原则+肌群分配生成周期化训练计划。
+
+    算法原理:
+        - 渐进过载: 每周增加2.5-5%训练量（重量或次数），第4周减载（Deload）
+        - 周期化: 4周一个Mesocycle，含渐进期(1-3周)+减载期(第4周)
+        - 肌群分配: 按天数分配（3天=推拉腿、4天=上下分化、5天=单肌群）
+        - 强度计算: 1RM百分比 × 组数 × 次数 = 训练量(TVL)
+
+    参数:
+        goal (str): 训练目标 "fat_loss"/"muscle_gain"/"endurance"/"strength"
+        current_level (str): 当前水平 "beginner"/"intermediate"/"advanced"
+        days_per_week (int): 每周训练天数
+        equipment (list[str]): 可用设备列表
+
+    返回:
+        dict: 4周训练计划，含weekly_plans/exercises/progression_chart。
+    """
+    # 目标配置
+    goal_configs = {
+        "fat_loss": {"reps": 15, "sets": 3, "rest": 30, "weight_pct": 0.55, "cardio_ratio": 0.4},
+        "muscle_gain": {"reps": 10, "sets": 4, "rest": 90, "weight_pct": 0.70, "cardio_ratio": 0.15},
+        "endurance": {"reps": 20, "sets": 3, "rest": 45, "weight_pct": 0.45, "cardio_ratio": 0.5},
+        "strength": {"reps": 5, "sets": 5, "rest": 180, "weight_pct": 0.85, "cardio_ratio": 0.1}
+    }
+    config = goal_configs.get(goal, goal_configs["muscle_gain"])
+
+    # 水平系数
+    level_modifiers = {"beginner": 0.85, "intermediate": 1.0, "advanced": 1.15}
+    level_mod = level_modifiers.get(current_level, 1.0)
+
+    # 训练分割方案
+    splits = {
+        3: [["胸+三头", "背+二头", "腿+肩"]],
+        4: [["胸+三头", "背+二头", "腿", "肩+核心"]],
+        5: [["胸", "背", "腿", "肩", "手臂"]],
+        6: [["胸", "背", "腿前", "肩", "手臂", "腿后"]],
+    }
+    split = splits.get(days_per_week, splits[3])[0]
+
+    # 动作数据库
+    exercise_db = {
+        "胸": [{"name": "杠铃卧推", "compound": True}, {"name": "哑铃飞鸟", "compound": False}, {"name": "俯卧撑", "compound": True}],
+        "背": [{"name": "引体向上", "compound": True}, {"name": "杠铃划船", "compound": True}, {"name": "高位下拉", "compound": False}],
+        "腿": [{"name": "杠铃深蹲", "compound": True}, {"name": "腿举", "compound": False}, {"name": "罗马尼亚硬拉", "compound": True}],
+        "肩": [{"name": "杠铃推举", "compound": True}, {"name": "侧平举", "compound": False}, {"name": "面拉", "compound": False}],
+        "手臂": [{"name": "杠铃弯举", "compound": False}, {"name": "绳索下压", "compound": False}, {"name": "锤式弯举", "compound": False}],
+        "核心": [{"name": "平板支撑", "compound": True}, {"name": "悬垂举腿", "compound": False}, {"name": "俄罗斯转体", "compound": False}],
+        "腿前": [{"name": "杠铃深蹲", "compound": True}, {"name": "前蹲", "compound": True}, {"name": "腿屈伸", "compound": False}],
+        "腿后": [{"name": "罗马尼亚硬拉", "compound": True}, {"name": "腿弯举", "compound": False}, {"name": "臀桥", "compound": True}],
+        "胸+三头": [{"name": "杠铃卧推", "compound": True}, {"name": "上斜哑铃卧推", "compound": False}, {"name": "绳索下压", "compound": False}],
+        "背+二头": [{"name": "引体向上", "compound": True}, {"name": "杠铃划船", "compound": True}, {"name": "杠铃弯举", "compound": False}],
+        "腿+肩": [{"name": "杠铃深蹲", "compound": True}, {"name": "罗马尼亚硬拉", "compound": True}, {"name": "杠铃推举", "compound": True}],
+    }
+
+    # 步骤1: 生成4周渐进计划
+    weekly_plans = []
+    progression_chart = []
+
+    for week in range(1, 5):
+        # 渐进过载: 每周增加5%训练量，第4周减载
+        if week < 4:
+            overload = 1.0 + (week - 1) * 0.05  # 第1周100%, 第2周105%, 第3周110%
+            is_deload = False
+        else:
+            overload = 0.6  # 减载周60%训练量
+            is_deload = True
+
+        week_plan = {"week": week, "phase": "减载期" if is_deload else "渐进期", "overload_factor": round(overload, 2), "days": []}
+
+        for day_idx in range(days_per_week):
+            muscle_group = split[day_idx % len(split)]
+            exercises = exercise_db.get(muscle_group, exercise_db["胸"])
+
+            day_exercises = []
+            for ex in exercises[:3]:  # 每个部位3个动作
+                # 渐进过载: 重量和组数随周递增
+                base_sets = config["sets"]
+                adjusted_sets = max(2, int(base_sets * overload * level_mod))
+                adjusted_reps = max(3, int(config["reps"] * (1.0 - (week - 1) * 0.02))) if goal == "strength" else config["reps"]
+                weight_pct = config["weight_pct"] * overload * level_mod
+
+                day_exercises.append({
+                    "name": ex["name"],
+                    "muscle_group": muscle_group,
+                    "sets": adjusted_sets,
+                    "reps": adjusted_reps,
+                    "rest_seconds": config["rest"],
+                    "intensity_pct": round(weight_pct * 100, 1),
+                    "estimated_1rm_factor": round(weight_pct, 2)
+                })
+
+            # 有氧运动
+            if config["cardio_ratio"] > 0:
+                cardio_time = int(30 * config["cardio_ratio"] * (1.5 if goal == "fat_loss" else 1.0))
+                day_exercises.append({
+                    "name": "有氧运动（跑步/椭圆机）",
+                    "type": "cardio",
+                    "duration_minutes": cardio_time,
+                    "intensity": "中等" if goal != "endurance" else "高强度"
+                })
+
+            week_plan["days"].append({
+                "day": day_idx + 1,
+                "focus": muscle_group,
+                "exercises": day_exercises
+            })
+
+        # 计算周训练量
+        total_sets = sum(len([e for e in d["exercises"] if e.get("type") != "cardio"]) for d in week_plan["days"])
+        progression_chart.append({
+            "week": week, "total_sets": total_sets,
+            "intensity_level": round(config["weight_pct"] * overload * 100, 1),
+            "phase": "减载" if is_deload else f"渐进{week}"
+        })
+        weekly_plans.append(week_plan)
+
+    return {
         "goal": goal,
+        "level": current_level,
         "days_per_week": days_per_week,
-        "equipment": equipment,
-        "weekly_plan": weekly_plan,
-        "rest_days": 7 - days_per_week,
-        "tips": [
-            "训练前进行5-10分钟热身",
-            "训练后进行拉伸放松",
-            "保持充足的水分摄入",
-            "确保每周至少1-2天完全休息",
-            "根据身体反馈调整训练强度"
+        "split": split,
+        "weekly_plans": weekly_plans,
+        "progression_chart": progression_chart,
+        "principles": [
+            "渐进过载: 每周增加5%训练量，第4周减载至60%",
+            "周期化: 4周一个Mesocycle，含3周渐进+1周减载",
+            f"强度区间: {config['weight_pct']*100:.0f}% 1RM × {config['sets']}组 × {config['reps']}次",
+            f"组间休息: {config['rest']}秒"
         ]
     }
 
 
 # ---------------------------------------------------------------------------
-# 3. 预算追踪
+# 4. 预算优化器
 # ---------------------------------------------------------------------------
-def budget_tracker(income, expenses, savings_goal, period="monthly"):
+def budget_optimizer(income, expenses, savings_goal, categories):
     """
-    预算追踪：根据收入、支出和储蓄目标追踪预算。
+    预算优化器：基于50/30/20规则+零基预算+线性规划优化最大化储蓄。
+
+    算法原理:
+        - 50/30/20规则: 需求50% / 想要30% / 储蓄20%
+        - 零基预算: 收入 = 支出 + 储蓄，每分钱都有去处
+        - 线性规划: 在约束条件下最大化储蓄 S = income - Σ(expenses')
+          约束: 基本需求 ≥ 50% * income (下限), 储蓄 ≥ savings_goal (下限)
+        - 支出分析: 各类目占比 + 超支预警
 
     参数:
-        income (float): 总收入金额。
-        expenses (list[dict]): 支出列表，每项含 category、amount、description。
-        savings_goal (float): 储蓄目标金额。
-        period (str): 周期，可选 "weekly"/"monthly"/"yearly"，默认 "monthly"。
+        income (float): 月收入
+        expenses (list[dict]): 支出列表，每项含category/amount/essential(是否必要支出)
+        savings_goal (float): 储蓄目标
+        categories (dict): 预算分类上限，如{"housing": 0.3, "food": 0.15, "entertainment": 0.1}
 
     返回:
-        dict: 预算报告，含支出分析、储蓄进度和建议。
+        dict: 预算优化方案，含allocation/analysis/optimizations/alerts。
     """
-    total_expenses = sum(e.get("amount", 0) for e in expenses)
-    net_savings = income - total_expenses
+    total_expenses = sum(e["amount"] for e in expenses)
+    current_savings = income - total_expenses
 
-    # 按类别分组
-    category_totals = {}
-    for exp in expenses:
-        cat = exp.get("category", "其他")
-        category_totals[cat] = category_totals.get(cat, 0) + exp.get("amount", 0)
+    # 步骤1: 50/30/20规则分析
+    rule_50 = income * 0.5  # 需求
+    rule_30 = income * 0.3  # 想要
+    rule_20 = income * 0.2  # 储蓄
 
-    # 支出占比
-    category_breakdown = []
-    for cat, amount in sorted(category_totals.items(), key=lambda x: x[1], reverse=True):
-        percentage = round(amount / total_expenses * 100, 1) if total_expenses > 0 else 0
-        category_breakdown.append({
+    # 步骤2: 分类支出统计
+    category_spending = defaultdict(float)
+    category_essential = {}
+    for e in expenses:
+        cat = e.get("category", "other")
+        category_spending[cat] += e["amount"]
+        category_essential[cat] = e.get("essential", False)
+
+    # 步骤3: 必要支出 vs 非必要支出
+    essential_total = sum(e["amount"] for e in expenses if e.get("essential", False))
+    non_essential_total = total_expenses - essential_total
+
+    # 步骤4: 线性规划优化 - 最大化储蓄
+    # 变量: 每个非必要支出类目的缩减比例 (0 ~ 0.5)
+    # 目标: 最大化 S = income - essential - Σ(non_essential_i * (1 - reduction_i))
+    # 约束1: 各类目支出 >= 类目下限
+    # 约束2: 储蓄 >= savings_goal
+    # 约束3: 缩减比例 ∈ [0, 0.5]
+
+    optimizations = []
+    optimized_expenses = {}
+
+    for cat, amount in category_spending.items():
+        limit_ratio = categories.get(cat, 0.1)
+        limit = income * limit_ratio
+        is_essential = category_essential.get(cat, False)
+
+        if is_essential:
+            # 必要支出不缩减
+            optimized_expenses[cat] = amount
+        else:
+            # 非必要支出: 缩减至上限或保持
+            if amount > limit:
+                reduction = amount - limit
+                optimized_expenses[cat] = limit
+                optimizations.append({
+                    "category": cat,
+                    "original": amount,
+                    "optimized": limit,
+                    "reduction": round(reduction, 2),
+                    "reduction_pct": round(reduction / amount * 100, 1)
+                })
+            else:
+                optimized_expenses[cat] = amount
+
+    optimized_total = sum(optimized_expenses.values())
+    optimized_savings = income - optimized_total
+
+    # 步骤5: 如果优化后仍达不到储蓄目标，进一步缩减非必要支出
+    if optimized_savings < savings_goal:
+        deficit = savings_goal - optimized_savings
+        # 按非必要支出占比分配缩减
+        non_essential_cats = {c: a for c, a in optimized_expenses.items() if not category_essential.get(c, False)}
+        non_essential_sum = sum(non_essential_cats.values())
+        if non_essential_sum > 0:
+            for cat, amount in non_essential_cats.items():
+                cut_ratio = amount / non_essential_sum
+                cut = min(deficit * cut_ratio, amount * 0.3)  # 最多削减30%
+                optimized_expenses[cat] -= cut
+                optimizations.append({
+                    "category": cat,
+                    "original": amount,
+                    "optimized": round(optimized_expenses[cat], 2),
+                    "reduction": round(cut, 2),
+                    "reduction_pct": round(cut / amount * 100, 1),
+                    "reason": "为达成储蓄目标进一步缩减"
+                })
+            optimized_total = sum(optimized_expenses.values())
+            optimized_savings = income - optimized_total
+
+    # 步骤6: 支出分析
+    analysis = []
+    for cat, amount in sorted(category_spending.items(), key=lambda x: -x[1]):
+        pct = amount / income * 100
+        limit_ratio = categories.get(cat, 0.1)
+        status = "正常" if pct <= limit_ratio * 100 * 1.1 else ("偏高" if pct <= limit_ratio * 100 * 1.5 else "超支")
+        analysis.append({
             "category": cat,
             "amount": round(amount, 2),
-            "percentage": percentage,
-            "vs_income": round(amount / income * 100, 1) if income > 0 else 0
+            "percentage": round(pct, 1),
+            "budget_limit": round(income * limit_ratio, 2),
+            "limit_ratio": f"{limit_ratio*100:.0f}%",
+            "status": status,
+            "essential": category_essential.get(cat, False)
         })
 
-    # 储蓄进度
-    savings_rate = round(net_savings / income * 100, 1) if income > 0 else 0
-    goal_progress = round(net_savings / savings_goal * 100, 1) if savings_goal > 0 else 0
-
-    # 50/30/20法则分析
-    needs = sum(v for k, v in category_totals.items() if k in ["房租", "房贷", "水电", "交通", "保险", "餐饮"])
-    wants = sum(v for k, v in category_totals.items() if k in ["娱乐", "购物", "外出", "订阅", "旅行"])
-    savings = net_savings
-
-    needs_pct = round(needs / income * 100, 1) if income > 0 else 0
-    wants_pct = round(wants / income * 100, 1) if income > 0 else 0
-    savings_pct = round(savings / income * 100, 1) if income > 0 else 0
-
-    # 健康度评估
-    issues = []
-    if needs_pct > 50:
-        issues.append(f"必要支出占比{needs_pct}%，超过50%的建议上限")
-    if wants_pct > 30:
-        issues.append(f"非必要支出占比{wants_pct}%，超过30%的建议上限")
-    if savings_rate < 20 and savings_rate > 0:
-        issues.append(f"储蓄率{savings_rate}%，低于20%的建议下限")
-    if net_savings < 0:
-        issues.append("支出超过收入，存在预算赤字")
+    # 步骤7: 预警
+    alerts = []
+    if essential_total > rule_50:
+        alerts.append(f"必要支出占比{essential_total/income*100:.0f}%超过50%阈值，收入偏低或支出结构不合理")
+    if current_savings < 0:
+        alerts.append(f"当前入不敷出，赤字{abs(current_savings):.0f}元，需立即削减支出")
+    if optimized_savings < savings_goal:
+        alerts.append(f"即使优化后储蓄仍低于目标，建议增加收入来源")
+    if non_essential_total > rule_30:
+        alerts.append(f"非必要支出占比{non_essential_total/income*100:.0f}%超过30%阈值")
 
     return {
-        "period": period,
-        "income": round(income, 2),
-        "total_expenses": round(total_expenses, 2),
-        "net_savings": round(net_savings, 2),
-        "savings_rate": savings_rate,
+        "income": income,
+        "current_expenses": round(total_expenses, 2),
+        "current_savings": round(current_savings, 2),
+        "optimized_expenses": {k: round(v, 2) for k, v in optimized_expenses.items()},
+        "optimized_total": round(optimized_total, 2),
+        "optimized_savings": round(optimized_savings, 2),
         "savings_goal": savings_goal,
-        "goal_progress": min(goal_progress, 100),
-        "goal_achieved": net_savings >= savings_goal,
-        "category_breakdown": category_breakdown,
+        "goal_achieved": optimized_savings >= savings_goal,
         "rule_50_30_20": {
-            "needs": {"amount": round(needs, 2), "percentage": needs_pct, "ideal": "50%"},
-            "wants": {"amount": round(wants, 2), "percentage": wants_pct, "ideal": "30%"},
-            "savings": {"amount": round(savings, 2), "percentage": savings_pct, "ideal": "20%"}
+            "needs_50": round(rule_50, 2),
+            "wants_30": round(rule_30, 2),
+            "savings_20": round(rule_20, 2),
+            "actual_needs": round(essential_total, 2),
+            "actual_wants": round(non_essential_total, 2),
+            "actual_savings": round(current_savings, 2)
         },
-        "issues": issues,
-        "recommendations": _get_budget_recommendations(savings_rate, needs_pct, wants_pct, net_savings),
-        "status": "健康" if savings_rate >= 20 and net_savings > 0 else ("需改善" if net_savings > 0 else "赤字")
+        "category_analysis": analysis,
+        "optimizations": optimizations,
+        "total_savings_increase": round(optimized_savings - current_savings, 2),
+        "alerts": alerts
     }
 
 
-def _get_budget_recommendations(savings_rate, needs_pct, wants_pct, net_savings):
-    """根据预算分析生成建议。"""
-    recs = []
-    if net_savings < 0:
-        recs.append("当前支出超过收入，建议立即削减非必要支出。")
-    if needs_pct > 50:
-        recs.append("必要支出过高，建议考虑降低住房成本或优化固定支出。")
-    if wants_pct > 30:
-        recs.append("非必要支出偏多，建议设定每月娱乐购物预算上限。")
-    if savings_rate < 20 and savings_rate > 0:
-        recs.append("储蓄率偏低，建议将储蓄率逐步提升至20%以上。")
-    if savings_rate >= 20:
-        recs.append("储蓄率良好，建议考虑将储蓄用于投资增值。")
-    if not recs:
-        recs.append("预算管理良好，继续保持。")
-    return recs
-
-
 # ---------------------------------------------------------------------------
-# 4. 旅行规划
+# 5. 餐饮计划器
 # ---------------------------------------------------------------------------
-def travel_planner(destination, duration, budget, preferences=None):
+def meal_planner(calorie_target, meals_per_day, food_database, restrictions):
     """
-    旅行规划：根据目的地、天数、预算和偏好生成旅行计划。
+    餐饮计划器：基于营养目标+约束满足+贪心算法生成每日餐食方案。
+
+    算法原理:
+        - 约束满足: 每餐热量 ≈ calorie_target / meals_per_day，宏量营养素比例约束
+        - 贪心算法: 优先选择营养密度高的食物（营养/热量比）
+        - 随机化: 从候选食物中随机选择以增加多样性
+        - 迭代调整: 超出/不足热量时增减食物份量
 
     参数:
-        destination (str): 目的地名称。
-        duration (int): 旅行天数。
-        budget (float): 总预算金额。
-        preferences (dict): 偏好设置，含 travel_style（旅行风格）、
-            interests（兴趣列表）、pace（节奏），为None时使用默认值。
+        calorie_target (int): 每日热量目标
+        meals_per_day (int): 每日餐数
+        food_database (list[dict]): 食物数据库，每项含name/calories/protein/fat/carbs/serving_size
+        restrictions (list[str]): 饮食限制列表
 
     返回:
-        dict: 旅行计划，含日程安排、预算分配和建议。
+        dict: 每日餐食方案，含meals/nutrition_summary/variety_score。
     """
-    if preferences is None:
-        preferences = {"travel_style": "经济", "interests": ["自然风光", "美食"], "pace": "适中"}
+    # 宏量营养素目标比例
+    macro_ratios = {"protein": 0.30, "fat": 0.25, "carbs": 0.45}
 
-    travel_style = preferences.get("travel_style", "经济")
-    interests = preferences.get("interests", ["自然风光"])
-    pace = preferences.get("pace", "适中")
+    # 过滤受限食物
+    available_foods = []
+    for food in food_database:
+        is_restricted = False
+        for restriction in restrictions:
+            if restriction.lower() in food.get("name", "").lower():
+                is_restricted = True
+                break
+        if not is_restricted:
+            available_foods.append(food)
 
-    # 预算分配
-    style_multiplier = {"经济": 1.0, "舒适": 1.5, "豪华": 2.5}.get(travel_style, 1.0)
-    adjusted_budget = budget / style_multiplier
+    if not available_foods:
+        available_foods = food_database  # 如果全部受限则不过滤
 
-    budget_allocation = {
-        "住宿": adjusted_budget * 0.35,
-        "餐饮": adjusted_budget * 0.25,
-        "交通": adjusted_budget * 0.20,
-        "景点门票": adjusted_budget * 0.10,
-        "购物纪念": adjusted_budget * 0.05,
-        "应急储备": adjusted_budget * 0.05
-    }
+    # 步骤1: 计算营养密度（蛋白质/热量比）
+    for food in available_foods:
+        cal = food.get("calories", 100)
+        protein = food.get("protein", 0)
+        food["nutrition_density"] = protein / cal if cal > 0 else 0
 
-    # 每日安排
-    daily_plan = []
-    activities_by_interest = {
-        "自然风光": ["游览国家公园", "登山徒步", "湖边漫步", "日出日落观景"],
-        "历史文化": ["参观博物馆", "古城游览", "历史遗迹探访", "文化表演"],
-        "美食": ["当地特色餐厅", "街头小吃探索", "美食市场", "烹饪体验课"],
-        "购物": ["商业街购物", "当地市场", "手工艺品店", "免税店"],
-        "冒险": ["户外探险", "水上运动", "骑行游览", "跳伞/蹦极"],
-        "休闲": ["温泉SPA", "海滩日光浴", "咖啡厅休闲", "公园散步"]
-    }
+    # 按营养密度排序
+    sorted_foods = sorted(available_foods, key=lambda x: x.get("nutrition_density", 0), reverse=True)
 
-    pace_config = {"紧凑": 4, "适中": 3, "轻松": 2}
-    activities_per_day = pace_config.get(pace, 3)
+    # 步骤2: 每餐热量分配
+    calories_per_meal = calorie_target / meals_per_day
+    protein_per_meal = (calorie_target * macro_ratios["protein"] / 4) / meals_per_day  # 蛋白质4kcal/g
+    carbs_per_meal = (calorie_target * macro_ratios["carbs"] / 4) / meals_per_day
+    fat_per_meal = (calorie_target * macro_ratios["fat"] / 9) / meals_per_day
 
-    for day in range(1, duration + 1):
-        day_activities = []
-        for i in range(activities_per_day):
-            interest = interests[i % len(interests)] if interests else "自然风光"
-            activities = activities_by_interest.get(interest, ["自由活动"])
-            activity = activities[(day + i) % len(activities)]
-            day_activities.append({
-                "time": _get_activity_time(i),
-                "activity": activity,
-                "interest": interest,
-                "estimated_cost": round(adjusted_budget / duration / activities_per_day * 0.8, 0)
+    meals = []
+    total_calories = 0
+    total_protein = 0
+    total_fat = 0
+    total_carbs = 0
+    used_foods = set()
+
+    for meal_idx in range(meals_per_day):
+        meal_name = ["早餐", "午餐", "晚餐", "加餐"][meal_idx % 4]
+        meal_calories = 0
+        meal_foods = []
+        meal_protein = 0
+        meal_fat = 0
+        meal_carbs = 0
+
+        # 步骤3: 贪心选择食物
+        # 分高密度和低密度，按2:1比例选择
+        high_density = [f for f in sorted_foods if f.get("nutrition_density", 0) > 0.05]
+        low_density = [f for f in sorted_foods if f.get("nutrition_density", 0) <= 0.05]
+
+        # 每餐选择3-5个食物
+        num_items = random.randint(3, min(5, len(available_foods)))
+
+        for _ in range(num_items):
+            # 80%概率选高密度食物，20%选低密度
+            if random.random() < 0.7 and high_density:
+                food = random.choice(high_density)
+            elif low_density:
+                food = random.choice(low_density)
+            else:
+                food = random.choice(available_foods)
+
+            # 计算份量以达到每餐热量目标
+            remaining = calories_per_meal - meal_calories
+            if remaining <= 0:
+                break
+
+            serving_cal = food.get("calories", 100)
+            # 份量比例: 目标热量的30-50%
+            target_cal = remaining * random.uniform(0.25, 0.45)
+            servings = max(0.5, target_cal / serving_cal if serving_cal > 0 else 1)
+
+            actual_cal = serving_cal * servings
+            actual_protein = food.get("protein", 0) * servings
+            actual_fat = food.get("fat", 0) * servings
+            actual_carbs = food.get("carbs", 0) * servings
+
+            meal_foods.append({
+                "name": food.get("name", "未知食物"),
+                "servings": round(servings, 2),
+                "serving_size": food.get("serving_size", "100g"),
+                "calories": round(actual_cal, 0),
+                "protein": round(actual_protein, 1),
+                "fat": round(actual_fat, 1),
+                "carbs": round(actual_carbs, 1)
             })
 
-        daily_plan.append({
-            "day": day,
-            "date": (datetime.now() + timedelta(days=day)).strftime("%Y-%m-%d"),
-            "activities": day_activities,
-            "daily_budget": round(adjusted_budget / duration, 2),
-            "pace": pace
+            meal_calories += actual_cal
+            meal_protein += actual_protein
+            meal_fat += actual_fat
+            meal_carbs += actual_carbs
+            used_foods.add(food.get("name", ""))
+
+        # 步骤4: 微调份量使总热量接近目标
+        calorie_diff = calories_per_meal - meal_calories
+        if abs(calorie_diff) > 50 and meal_foods:
+            # 等比例调整所有食物份量
+            adjust_ratio = calories_per_meal / meal_calories if meal_calories > 0 else 1
+            for mf in meal_foods:
+                mf["servings"] = round(mf["servings"] * adjust_ratio, 2)
+                mf["calories"] = round(mf["calories"] * adjust_ratio, 0)
+                mf["protein"] = round(mf["protein"] * adjust_ratio, 1)
+                mf["fat"] = round(mf["fat"] * adjust_ratio, 1)
+                mf["carbs"] = round(mf["carbs"] * adjust_ratio, 1)
+            meal_calories *= adjust_ratio
+            meal_protein *= adjust_ratio
+            meal_fat *= adjust_ratio
+            meal_carbs *= adjust_ratio
+
+        meals.append({
+            "meal": meal_name,
+            "foods": meal_foods,
+            "total_calories": round(meal_calories, 0),
+            "total_protein": round(meal_protein, 1),
+            "total_fat": round(meal_fat, 1),
+            "total_carbs": round(meal_carbs, 1)
         })
 
-    return {
-        "destination": destination,
-        "duration_days": duration,
-        "total_budget": budget,
-        "travel_style": travel_style,
-        "interests": interests,
-        "pace": pace,
-        "budget_allocation": {k: round(v, 2) for k, v in budget_allocation.items()},
-        "daily_budget": round(adjusted_budget / duration, 2),
-        "itinerary": daily_plan,
-        "packing_list": _generate_packing_list(destination, duration, travel_style),
-        "tips": [
-            f"提前预订{destination}的住宿以获得更好价格",
-            "了解当地天气并准备相应衣物",
-            "保存重要联系方式和紧急联系电话",
-            "购买旅行保险以防意外",
-            "兑换适量当地货币"
-        ]
-    }
+        total_calories += meal_calories
+        total_protein += meal_protein
+        total_fat += meal_fat
+        total_carbs += meal_carbs
 
+    # 步骤5: 多样性评分（使用的不同食物数/总食物数）
+    variety_score = round(len(used_foods) / max(len(available_foods), 1) * 100, 1)
 
-def _get_activity_time(slot):
-    """根据时段索引返回时间。"""
-    times = ["上午 09:00-12:00", "下午 14:00-17:00", "傍晚 17:00-20:00", "晚上 20:00-22:00"]
-    return times[slot % len(times)]
-
-
-def _generate_packing_list(destination, duration, style):
-    """生成行李清单。"""
-    essentials = ["身份证/护照", "手机充电器", "现金/银行卡", "常用药品", "雨伞"]
-    clothing = [f"内衣 {duration}套", f"袜子 {duration}双", "外套 1件",
-                f"上衣 {min(duration, 5)}件", f"裤子 {min(duration // 2 + 1, 4)}条"]
-    toiletries = ["牙刷/牙膏", "洗发水", "沐浴露", "毛巾", "防晒霜"]
-
-    if style == "豪华":
-        clothing.append("正装 1套")
+    # 步骤6: 营养达标分析
+    target_protein = calorie_target * macro_ratios["protein"] / 4
+    target_carbs = calorie_target * macro_ratios["carbs"] / 4
+    target_fat = calorie_target * macro_ratios["fat"] / 9
 
     return {
-        "必需品": essentials,
-        "衣物": clothing,
-        "洗漱用品": toiletries,
-        "电子产品": ["手机", "充电宝", "耳机", "转换插头"]
-    }
-
-
-# ---------------------------------------------------------------------------
-# 5. 一周餐饮计划
-# ---------------------------------------------------------------------------
-def meal_planner(week=None, dietary_prefs=None, calorie_target=2000):
-    """
-    一周餐饮计划：根据饮食偏好和热量目标生成一周三餐计划。
-
-    参数:
-        week (str): 目标周次，如 "2025-W01"，为None时使用当前周。
-        dietary_prefs (str): 饮食偏好，如 "均衡"/"素食"/"高蛋白"/"低碳水"，为None时为"均衡"。
-        calorie_target (int): 每日热量目标（千卡），默认2000。
-
-    返回:
-        dict: 一周餐饮计划，含每日三餐和营养统计。
-    """
-    if week is None:
-        week = datetime.now().strftime("%Y-W%W")
-
-    if dietary_prefs is None:
-        dietary_prefs = "均衡"
-
-    # 餐食数据库
-    meal_db = {
-        "均衡": {
-            "breakfast": [
-                {"name": "全麦吐司+鸡蛋+牛奶", "calories": 400, "protein": 20, "carbs": 45, "fat": 15},
-                {"name": "燕麦粥+坚果+水果", "calories": 380, "protein": 12, "carbs": 55, "fat": 12},
-                {"name": "包子+豆浆+鸡蛋", "calories": 420, "protein": 18, "carbs": 50, "fat": 14},
-                {"name": "三明治+牛奶+水果", "calories": 410, "protein": 16, "carbs": 48, "fat": 14}
-            ],
-            "lunch": [
-                {"name": "米饭+鸡胸肉+蔬菜", "calories": 650, "protein": 35, "carbs": 70, "fat": 18},
-                {"name": "面条+牛肉+青菜", "calories": 680, "protein": 32, "carbs": 75, "fat": 20},
-                {"name": "杂粮饭+鱼+豆腐+蔬菜", "calories": 620, "protein": 38, "carbs": 65, "fat": 15},
-                {"name": "炒饭+虾仁+蔬菜", "calories": 660, "protein": 30, "carbs": 72, "fat": 20}
-            ],
-            "dinner": [
-                {"name": "杂粮粥+蒸鱼+蔬菜", "calories": 550, "protein": 30, "carbs": 55, "fat": 15},
-                {"name": "汤面+鸡蛋+青菜", "calories": 520, "protein": 22, "carbs": 60, "fat": 16},
-                {"name": "红薯+鸡胸肉沙拉", "calories": 500, "protein": 28, "carbs": 50, "fat": 14},
-                {"name": "蔬菜炒饭+豆腐汤", "calories": 530, "protein": 20, "carbs": 62, "fat": 15}
-            ]
-        },
-        "素食": {
-            "breakfast": [
-                {"name": "豆浆+全麦馒头+水果", "calories": 380, "protein": 14, "carbs": 52, "fat": 10},
-                {"name": "燕麦粥+坚果+蓝莓", "calories": 360, "protein": 11, "carbs": 55, "fat": 11}
-            ],
-            "lunch": [
-                {"name": "杂粮饭+麻婆豆腐+蔬菜", "calories": 600, "protein": 25, "carbs": 70, "fat": 18},
-                {"name": "蔬菜意面+沙拉", "calories": 580, "protein": 18, "carbs": 75, "fat": 16}
-            ],
-            "dinner": [
-                {"name": "蔬菜粥+蒸南瓜+凉拌菜", "calories": 480, "protein": 15, "carbs": 55, "fat": 12},
-                {"name": "豆腐蔬菜汤+杂粮饭", "calories": 500, "protein": 22, "carbs": 58, "fat": 14}
-            ]
-        },
-        "高蛋白": {
-            "breakfast": [
-                {"name": "蛋白煎蛋+鸡胸肉+全麦面包", "calories": 450, "protein": 40, "carbs": 35, "fat": 15},
-                {"name": "希腊酸奶+蛋白粉+坚果", "calories": 420, "protein": 35, "carbs": 30, "fat": 16}
-            ],
-            "lunch": [
-                {"name": "鸡胸肉+糙米+西兰花", "calories": 700, "protein": 50, "carbs": 60, "fat": 18},
-                {"name": "牛肉+红薯+蔬菜", "calories": 720, "protein": 45, "carbs": 55, "fat": 22}
-            ],
-            "dinner": [
-                {"name": "三文鱼+蔬菜沙拉", "calories": 550, "protein": 38, "carbs": 25, "fat": 28},
-                {"name": "蛋白+鸡胸肉+蔬菜", "calories": 520, "protein": 42, "carbs": 30, "fat": 16}
-            ]
-        }
-    }
-
-    prefs_meals = meal_db.get(dietary_prefs, meal_db["均衡"])
-    weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-
-    weekly_meals = []
-    total_calories_week = 0
-
-    for i, day_name in enumerate(weekdays):
-        random.seed(hash(week + day_name) % 10000)
-
-        breakfast = random.choice(prefs_meals["breakfast"])
-        lunch = random.choice(prefs_meals["lunch"])
-        dinner = random.choice(prefs_meals["dinner"])
-
-        day_calories = breakfast["calories"] + lunch["calories"] + dinner["calories"]
-        day_protein = breakfast["protein"] + lunch["protein"] + dinner["protein"]
-        day_carbs = breakfast["carbs"] + lunch["carbs"] + dinner["carbs"]
-        day_fat = breakfast["fat"] + lunch["fat"] + dinner["fat"]
-
-        total_calories_week += day_calories
-
-        weekly_meals.append({
-            "day": day_name,
-            "meals": {
-                "早餐": breakfast,
-                "午餐": lunch,
-                "晚餐": dinner
-            },
-            "daily_nutrition": {
-                "total_calories": day_calories,
-                "calorie_target": calorie_target,
-                "target_met": abs(day_calories - calorie_target) <= 200,
-                "protein_g": day_protein,
-                "carbs_g": day_carbs,
-                "fat_g": day_fat,
-                "protein_ratio": round(day_protein * 4 / day_calories * 100, 1),
-                "carbs_ratio": round(day_carbs * 4 / day_calories * 100, 1),
-                "fat_ratio": round(day_fat * 9 / day_calories * 100, 1)
+        "meals": meals,
+        "nutrition_summary": {
+            "total_calories": round(total_calories, 0),
+            "calorie_target": calorie_target,
+            "calorie_diff": round(total_calories - calorie_target, 0),
+            "total_protein": round(total_protein, 1),
+            "total_fat": round(total_fat, 1),
+            "total_carbs": round(total_carbs, 1),
+            "macro_ratios": {
+                "protein_pct": round(total_protein * 4 / total_calories * 100, 1) if total_calories > 0 else 0,
+                "fat_pct": round(total_fat * 9 / total_calories * 100, 1) if total_calories > 0 else 0,
+                "carbs_pct": round(total_carbs * 4 / total_calories * 100, 1) if total_calories > 0 else 0
             }
-        })
-
-    return {
-        "week": week,
-        "dietary_prefs": dietary_prefs,
-        "calorie_target": calorie_target,
-        "weekly_meals": weekly_meals,
-        "weekly_summary": {
-            "avg_daily_calories": round(total_calories_week / 7),
-            "total_calories": total_calories_week,
-            "target_variance": round(total_calories_week / 7 - calorie_target, 0),
-            "assessment": "热量摄入达标" if abs(total_calories_week / 7 - calorie_target) <= 200 else "热量偏差较大，建议调整"
-        }
+        },
+        "variety_score": variety_score,
+        "foods_used": len(used_foods),
+        "restrictions_applied": restrictions
     }
 
 
 # ---------------------------------------------------------------------------
-# 6. 习惯追踪器
+# 6. 习惯追踪分析器
 # ---------------------------------------------------------------------------
-def habit_tracker(habits, frequency="daily", streak_data=None):
+def habit_tracker_streak_analyzer(habit_data):
     """
-    习惯追踪器：追踪习惯养成情况和连续天数。
+    习惯追踪分析器：计算连续天数/完成率/趋势预测（马尔可夫链）。
+
+    算法原理:
+        - 连续天数: 从最后一天往前计算连续完成的天数
+        - 完成率: 完成天数 / 总天数
+        - 马尔可夫链预测: 构建2状态转移矩阵（完成↔未完成），
+          P(next_done) = P(done|done)*P(current_done) + P(done|not_done)*P(current_not_done)
+        - 趋势分析: 滑动窗口完成率变化趋势
 
     参数:
-        habits (list[dict]): 习惯列表，每项含 name、target_count、description。
-        frequency (str): 追踪频率，如 "daily"/"weekly"/"monthly"，默认 "daily"。
-        streak_data (dict): 历史连续记录，键为习惯名，值为连续天数。为None时初始化。
+        habit_data (dict): 习惯追踪数据，含:
+            - habit_name (str): 习惯名称
+            - records (list[dict]): 每日记录，含date和completed(bool)
 
     返回:
-        dict: 习惯追踪报告，含连续天数、完成率和建议。
+        dict: 习惯分析报告，含streak/completion_rate/prediction/trend。
     """
-    if streak_data is None:
-        streak_data = {}
+    records = habit_data.get("records", [])
+    if not records:
+        return {"error": "无记录数据"}
 
-    today = datetime.now()
-    tracked = []
-    best_streak = 0
-    completed_count = 0
+    habit_name = habit_data.get("habit_name", "习惯")
+    total_days = len(records)
 
-    for habit in habits:
-        name = habit.get("name", "未知习惯")
-        target = habit.get("target_count", 1)
-        current_streak = streak_data.get(name, {}).get("streak", 0)
-        best = streak_data.get(name, {}).get("best", 0)
-        last_done = streak_data.get(name, {}).get("last_done", "")
-        today_done = streak_data.get(name, {}).get("today_done", False)
+    # 步骤1: 计算当前连续天数（从最后一天往前）
+    current_streak = 0
+    for record in reversed(records):
+        if record.get("completed", False):
+            current_streak += 1
+        else:
+            break
 
-        if today_done:
-            completed_count += 1
+    # 步骤2: 计算最长连续记录
+    longest_streak = 0
+    temp_streak = 0
+    for record in records:
+        if record.get("completed", False):
+            temp_streak += 1
+            longest_streak = max(longest_streak, temp_streak)
+        else:
+            temp_streak = 0
 
-        if current_streak > best:
-            best = current_streak
-        if best > best_streak:
-            best_streak = best
+    # 步骤3: 计算完成率
+    completed_days = sum(1 for r in records if r.get("completed", False))
+    completion_rate = completed_days / total_days if total_days > 0 else 0
 
-        # 生成里程碑
-        milestones = []
-        for ms in [7, 21, 30, 66, 100, 365]:
-            if current_streak >= ms:
-                milestones.append({"days": ms, "achieved": True})
-            elif current_streak >= ms * 0.7:
-                milestones.append({"days": ms, "achieved": False, "progress": f"{current_streak}/{ms}天", "days_remaining": ms - current_streak})
+    # 步骤4: 构建马尔可夫链转移矩阵
+    # 状态: 0=未完成, 1=完成
+    transitions = {"00": 0, "01": 0, "10": 0, "11": 0}
+    for i in range(len(records) - 1):
+        curr = 1 if records[i].get("completed", False) else 0
+        next_d = 1 if records[i + 1].get("completed", False) else 0
+        key = str(curr) + str(next_d)
+        transitions[key] += 1
 
-        tracked.append({
-            "name": name,
-            "description": habit.get("description", ""),
-            "frequency": frequency,
-            "target_count": target,
-            "current_streak": current_streak,
-            "best_streak": best,
-            "today_completed": today_done,
-            "last_done": last_done,
-            "milestones": milestones,
-            "status": "进行中" if current_streak > 0 else "未开始",
-            "motivation": _get_habit_motivation(current_streak)
+    # 计算转移概率
+    from_done = transitions["11"] + transitions["10"]
+    from_not = transitions["01"] + transitions["00"]
+
+    p_done_given_done = transitions["11"] / from_done if from_done > 0 else 0.5
+    p_done_given_not = transitions["01"] / from_not if from_not > 0 else 0.5
+
+    # 步骤5: 预测未来7天完成概率
+    current_state_prob = 1.0 if records[-1].get("completed", False) else 0.0
+    predictions = []
+    for day in range(7):
+        # P(next_done) = P(done|done)*P(current_done) + P(done|not_done)*P(current_not_done)
+        p_next_done = (p_done_given_done * current_state_prob +
+                       p_done_given_not * (1 - current_state_prob))
+        predictions.append({
+            "day": day + 1,
+            "predicted_completion_prob": round(p_next_done * 100, 1)
+        })
+        current_state_prob = p_next_done
+
+    # 步骤6: 趋势分析（7天滑动窗口）
+    window_size = min(7, total_days)
+    weekly_rates = []
+    for i in range(0, total_days - window_size + 1):
+        window = records[i:i + window_size]
+        rate = sum(1 for r in window if r.get("completed", False)) / window_size
+        weekly_rates.append(rate)
+
+    trend_direction = "上升" if len(weekly_rates) >= 2 and weekly_rates[-1] > weekly_rates[0] + 0.05 else \
+                       "下降" if len(weekly_rates) >= 2 and weekly_rates[-1] < weekly_rates[0] - 0.05 else "稳定"
+
+    # 步骤7: 习惯等级评定
+    if completion_rate >= 0.9:
+        grade = "钻石级"
+    elif completion_rate >= 0.75:
+        grade = "黄金级"
+    elif completion_rate >= 0.5:
+        grade = "白银级"
+    elif completion_rate >= 0.25:
+        grade = "青铜级"
+    else:
+        grade = "新手级"
+
+    # 步骤8: 周内模式分析
+    weekday_completion = [0] * 7
+    weekday_total = [0] * 7
+    for record in records:
+        date_str = record.get("date", "")
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            weekday = dt.weekday()
+            weekday_total[weekday] += 1
+            if record.get("completed", False):
+                weekday_completion[weekday] += 1
+        except (ValueError, TypeError):
+            pass
+
+    weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    weekday_analysis = []
+    for i in range(7):
+        rate = weekday_completion[i] / weekday_total[i] if weekday_total[i] > 0 else 0
+        weekday_analysis.append({
+            "weekday": weekday_names[i],
+            "completion_rate": round(rate * 100, 1),
+            "total_days": weekday_total[i]
         })
 
     return {
-        "date": today.strftime("%Y-%m-%d"),
-        "frequency": frequency,
-        "total_habits": len(habits),
-        "completed_today": completed_count,
-        "completion_rate": round(completed_count / len(habits) * 100, 1) if habits else 0,
-        "best_overall_streak": best_streak,
-        "tracked_habits": tracked,
-        "summary": _get_habit_summary(completed_count, len(habits), best_streak),
-        "tips": [
-            "从小目标开始，逐步增加难度",
-            "将新习惯与已有习惯关联（习惯叠加）",
-            "记录每日完成情况，可视化进度",
-            "中断不超过2天，保持连续性",
-            "给自己适当的奖励作为正向反馈"
+        "habit_name": habit_name,
+        "total_days": total_days,
+        "completed_days": completed_days,
+        "completion_rate": round(completion_rate * 100, 1),
+        "current_streak": current_streak,
+        "longest_streak": longest_streak,
+        "grade": grade,
+        "markov_chain": {
+            "transition_matrix": {
+                "P(done|done)": round(p_done_given_done, 3),
+                "P(not_done|done)": round(1 - p_done_given_done, 3),
+                "P(done|not_done)": round(p_done_given_not, 3),
+                "P(not_done|not_done)": round(1 - p_done_given_not, 3)
+            },
+            "predictions": predictions
+        },
+        "trend": {
+            "direction": trend_direction,
+            "recent_rate": round(weekly_rates[-1] * 100, 1) if weekly_rates else 0,
+            "earliest_rate": round(weekly_rates[0] * 100, 1) if weekly_rates else 0
+        },
+        "weekday_pattern": weekday_analysis,
+        "insights": [
+            f"当前连续{current_streak}天，历史最长{longest_streak}天",
+            f"完成率{completion_rate*100:.1f}%，等级：{grade}",
+            f"趋势：{trend_direction}",
+            f"马尔可夫预测明日完成概率：{predictions[0]['predicted_completion_prob']}%" if predictions else ""
         ]
     }
 
 
-def _get_habit_motivation(streak):
-    """根据连续天数返回激励语。"""
-    if streak == 0:
-        return "今天开始第一步！"
-    elif streak < 7:
-        return f"已坚持{streak}天，正在养成习惯！"
-    elif streak < 21:
-        return f"已坚持{streak}天，习惯正在形成！"
-    elif streak < 66:
-        return f"已坚持{streak}天，习惯已基本养成！"
-    elif streak < 100:
-        return f"已坚持{streak}天，非常出色！"
-    else:
-        return f"已坚持{streak}天，令人敬佩的毅力！"
-
-
-def _get_habit_summary(completed, total, best):
-    """生成习惯总结。"""
-    rate = completed / total * 100 if total > 0 else 0
-    if rate == 100:
-        return f"完美的一天！今日{completed}/{total}个习惯全部完成。"
-    elif rate >= 75:
-        return f"表现优秀！今日完成{completed}/{total}个习惯。"
-    elif rate >= 50:
-        return f"还不错，今日完成{completed}/{total}个习惯，继续努力。"
-    else:
-        return f"今天完成了{completed}/{total}个习惯，明天加油！"
-
-
 # ---------------------------------------------------------------------------
-# 7. 睡眠分析
+# 7. 睡眠质量分析器
 # ---------------------------------------------------------------------------
-def sleep_analyzer(sleep_records, period="weekly"):
+def sleep_quality_analyzer(sleep_records):
     """
-    睡眠分析：分析睡眠记录的质量和趋势。
+    睡眠质量分析器：计算睡眠时长/入睡效率/规律性/质量评分。
+
+    算法原理:
+        - 平均睡眠时长: Σ(duration) / n
+        - 入睡效率: actual_sleep_time / time_in_bed * 100%
+        - 睡眠规律性: 睡眠时长标准差（越小越规律）
+        - 质量评分: 加权综合(时长40% + 效率30% + 规律性20% + 深睡比例10%)
+        - 理想睡眠: 7-9小时，效率>85%，标准差<1小时
 
     参数:
-        sleep_records (list[dict]): 睡眠记录列表，每项含 date、bedtime、wakeup_time、
-            duration_hours、quality(1-5)、deep_sleep_hours、rem_sleep_hours。
-        period (str): 分析周期，如 "weekly"/"monthly"，默认 "weekly"。
+        sleep_records (list[dict]): 睡眠记录列表，每项含:
+            - date (str): 日期
+            - bedtime (str): 就寝时间
+            - wakeup (str): 起床时间
+            - sleep_duration (float): 实际睡眠时长(小时)
+            - time_in_bed (float): 在床时间(小时)
+            - deep_sleep (float): 深睡时间(小时)
+            - awakenings (int): 夜间醒来次数
 
     返回:
-        dict: 睡眠分析报告，含平均时长、质量评分和趋势。
+        dict: 睡眠分析报告，含averages/quality_score/grade/recommendations。
     """
     if not sleep_records:
-        return {"error": "无睡眠记录数据"}
+        return {"error": "无睡眠记录"}
 
-    total_duration = sum(r.get("duration_hours", 0) for r in sleep_records)
-    avg_duration = total_duration / len(sleep_records)
-    total_deep = sum(r.get("deep_sleep_hours", 0) for r in sleep_records)
-    avg_deep = total_deep / len(sleep_records)
-    total_rem = sum(r.get("rem_sleep_hours", 0) for r in sleep_records)
-    avg_rem = total_rem / len(sleep_records)
-    avg_quality = sum(r.get("quality", 3) for r in sleep_records) / len(sleep_records)
+    n = len(sleep_records)
 
-    # 睡眠质量分级
-    if avg_quality >= 4.5:
-        quality_level = "优秀"
-    elif avg_quality >= 3.5:
-        quality_level = "良好"
-    elif avg_quality >= 2.5:
-        quality_level = "一般"
+    # 步骤1: 计算平均值
+    avg_duration = sum(r.get("sleep_duration", 0) for r in sleep_records) / n
+    avg_time_in_bed = sum(r.get("time_in_bed", 0) for r in sleep_records) / n
+    avg_deep_sleep = sum(r.get("deep_sleep", 0) for r in sleep_records) / n
+    avg_awakenings = sum(r.get("awakenings", 0) for r in sleep_records) / n
+
+    # 步骤2: 计算入睡效率
+    avg_efficiency = (avg_duration / avg_time_in_bed * 100) if avg_time_in_bed > 0 else 0
+
+    # 步骤3: 计算睡眠时长标准差（规律性指标）
+    variance = sum((r.get("sleep_duration", 0) - avg_duration) ** 2 for r in sleep_records) / n
+    std_dev = math.sqrt(variance)
+
+    # 步骤4: 计算深睡比例
+    deep_sleep_ratio = (avg_deep_sleep / avg_duration * 100) if avg_duration > 0 else 0
+
+    # 步骤5: 质量评分（0-100，加权综合）
+    # 时长得分（7-9小时为满分）
+    if 7 <= avg_duration <= 9:
+        duration_score = 100
+    elif 6 <= avg_duration < 7 or 9 < avg_duration <= 10:
+        duration_score = 75
+    elif 5 <= avg_duration < 6 or 10 < avg_duration <= 11:
+        duration_score = 50
     else:
-        quality_level = "较差"
+        duration_score = 25
 
-    # 深度睡眠比例
-    deep_ratio = avg_deep / avg_duration * 100 if avg_duration > 0 else 0
-    rem_ratio = avg_rem / avg_duration * 100 if avg_duration > 0 else 0
-
-    # 按日期排序分析趋势
-    sorted_records = sorted(sleep_records, key=lambda x: x.get("date", ""))
-
-    # 检测异常
-    issues = []
-    if avg_duration < 6:
-        issues.append("平均睡眠时长不足6小时，严重睡眠不足")
-    elif avg_duration < 7:
-        issues.append("平均睡眠时长不足7小时，建议增加睡眠时间")
-
-    if avg_duration > 10:
-        issues.append("平均睡眠时长超过10小时，可能存在嗜睡问题")
-
-    if deep_ratio < 15:
-        issues.append(f"深度睡眠比例仅{deep_ratio:.1f}%，低于推荐值15-25%")
-
-    if avg_quality < 3:
-        issues.append("睡眠质量评分偏低，建议改善睡眠环境")
-
-    # 一致性分析
-    durations = [r.get("duration_hours", 0) for r in sleep_records]
-    if durations:
-        avg_d = sum(durations) / len(durations)
-        variance = sum((d - avg_d) ** 2 for d in durations) / len(durations)
-        std_dev = variance ** 0.5
-        consistency = "高" if std_dev < 0.5 else ("中" if std_dev < 1.0 else "低")
+    # 效率得分（>85%为满分）
+    if avg_efficiency >= 85:
+        efficiency_score = 100
+    elif avg_efficiency >= 75:
+        efficiency_score = 80
+    elif avg_efficiency >= 65:
+        efficiency_score = 60
     else:
-        std_dev = 0
-        consistency = "未知"
+        efficiency_score = 30
 
-    # 日级别详情
-    daily_details = []
-    for r in sorted_records:
-        duration = r.get("duration_hours", 0)
-        quality = r.get("quality", 3)
-        daily_details.append({
-            "date": r.get("date", ""),
-            "bedtime": r.get("bedtime", ""),
-            "wakeup_time": r.get("wakeup_time", ""),
-            "duration_hours": round(duration, 1),
-            "quality": quality,
-            "quality_label": {1: "很差", 2: "差", 3: "一般", 4: "好", 5: "很好"}.get(quality, "一般"),
-            "deep_sleep_hours": r.get("deep_sleep_hours", 0),
-            "rem_sleep_hours": r.get("rem_sleep_hours", 0),
-            "status": "充足" if duration >= 7 else ("不足" if duration < 6 else "适中")
+    # 规律性得分（标准差<0.5h为满分）
+    if std_dev < 0.5:
+        regularity_score = 100
+    elif std_dev < 1.0:
+        regularity_score = 75
+    elif std_dev < 1.5:
+        regularity_score = 50
+    else:
+        regularity_score = 25
+
+    # 深睡比例得分（>20%为满分）
+    if deep_sleep_ratio >= 20:
+        deep_score = 100
+    elif deep_sleep_ratio >= 15:
+        deep_score = 75
+    elif deep_sleep_ratio >= 10:
+        deep_score = 50
+    else:
+        deep_score = 25
+
+    # 加权综合评分
+    quality_score = round(
+        duration_score * 0.40 +
+        efficiency_score * 0.30 +
+        regularity_score * 0.20 +
+        deep_score * 0.10
+    )
+
+    # 步骤6: 等级评定
+    if quality_score >= 85:
+        grade = "优秀"
+    elif quality_score >= 70:
+        grade = "良好"
+    elif quality_score >= 55:
+        grade = "一般"
+    elif quality_score >= 40:
+        grade = "较差"
+    else:
+        grade = "很差"
+
+    # 步骤7: 趋势分析
+    first_half = sleep_records[:n // 2]
+    second_half = sleep_records[n // 2:]
+    first_avg = sum(r.get("sleep_duration", 0) for r in first_half) / len(first_half) if first_half else 0
+    second_avg = sum(r.get("sleep_duration", 0) for r in second_half) / len(second_half) if second_half else 0
+    trend = "改善" if second_avg > first_avg + 0.3 else ("恶化" if second_avg < first_avg - 0.3 else "稳定")
+
+    # 步骤8: 生成改善建议
+    recommendations = []
+    if avg_duration < 7:
+        recommendations.append(f"平均睡眠{avg_duration:.1f}小时偏短，建议每天睡7-9小时")
+    elif avg_duration > 9:
+        recommendations.append(f"平均睡眠{avg_duration:.1f}小时偏长，过长的睡眠可能影响精神状态")
+
+    if avg_efficiency < 85:
+        recommendations.append(f"入睡效率{avg_efficiency:.0f}%偏低，建议减少睡前屏幕使用时间")
+
+    if std_dev > 1.0:
+        recommendations.append(f"睡眠规律性差（标准差{std_dev:.1f}h），建议固定作息时间")
+
+    if deep_sleep_ratio < 15:
+        recommendations.append(f"深睡比例{deep_sleep_ratio:.0f}%偏低，建议增加白天运动量以提高深睡")
+
+    if avg_awakenings > 2:
+        recommendations.append(f"平均夜间醒来{avg_awakenings:.1f}次偏多，检查睡眠环境")
+
+    if not recommendations:
+        recommendations.append("睡眠质量良好，请继续保持当前的睡眠习惯！")
+
+    return {
+        "total_records": n,
+        "averages": {
+            "sleep_duration_hours": round(avg_duration, 2),
+            "time_in_bed_hours": round(avg_time_in_bed, 2),
+            "deep_sleep_hours": round(avg_deep_sleep, 2),
+            "deep_sleep_ratio": round(deep_sleep_ratio, 1),
+            "sleep_efficiency": round(avg_efficiency, 1),
+            "nighttime_awakenings": round(avg_awakenings, 1)
+        },
+        "regularity": {
+            "std_deviation_hours": round(std_dev, 2),
+            "min_duration": round(min(r.get("sleep_duration", 0) for r in sleep_records), 2),
+            "max_duration": round(max(r.get("sleep_duration", 0) for r in sleep_records), 2)
+        },
+        "quality_score": quality_score,
+        "grade": grade,
+        "score_breakdown": {
+            "duration_score": duration_score,
+            "efficiency_score": efficiency_score,
+            "regularity_score": regularity_score,
+            "deep_sleep_score": deep_score
+        },
+        "trend": trend,
+        "recommendations": recommendations
+    }
+
+
+# ---------------------------------------------------------------------------
+# 8. 旅行路线优化器
+# ---------------------------------------------------------------------------
+def travel_itinerary_optimizer(destinations, days, preferences, constraints):
+    """
+    旅行路线优化器：TSP旅行商问题简化版（最近邻贪心+2-opt改进）。
+
+    算法原理:
+        - TSP问题: 寻找访问所有目的地的最短路径
+        - 最近邻贪心: 从起点出发，每次选择最近未访问的目的地
+        - 2-opt改进: 遍历所有边对(i,j)，若交换后路径更短则交换
+        - 时间分配: 按目的地吸引力评分分配游览时间
+
+    参数:
+        destinations (list[dict]): 目的地列表，每项含:
+            - name (str): 名称
+            - lat (float): 纬度
+            - lon (float): 经度
+            - attraction_score (int): 景点吸引力评分(1-10)
+            - recommended_hours (float): 建议游览时长(小时)
+        days (int): 旅行天数
+        preferences (dict): 偏好设置，如{"pace": "relaxed", "start": "酒店"}
+        constraints (dict): 约束条件，如{"max_daily_hours": 8, "travel_speed": 80}
+
+    返回:
+        dict: 优化后的旅行路线，含route/daily_plans/statistics。
+    """
+    n = len(destinations)
+    if n == 0:
+        return {"error": "无目的地"}
+
+    max_daily_hours = constraints.get("max_daily_hours", 8)
+    travel_speed = constraints.get("travel_speed", 80)  # km/h
+
+    # 步骤1: 计算距离矩阵（Haversine公式）
+    def haversine(lat1, lon1, lat2, lon2):
+        """Haversine公式计算两点间球面距离(km)"""
+        R = 6371  # 地球半径(km)
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2) ** 2 +
+             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+             math.sin(dlon / 2) ** 2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+
+    dist_matrix = [[0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                dist_matrix[i][j] = haversine(
+                    destinations[i]["lat"], destinations[i]["lon"],
+                    destinations[j]["lat"], destinations[j]["lon"]
+                )
+
+    # 步骤2: 最近邻贪心算法构建初始路径
+    visited = [False] * n
+    route = [0]  # 从第一个目的地出发
+    visited[0] = True
+    total_distance = 0
+
+    for _ in range(n - 1):
+        current = route[-1]
+        nearest = -1
+        min_dist = float('inf')
+        for j in range(n):
+            if not visited[j] and dist_matrix[current][j] < min_dist:
+                min_dist = dist_matrix[current][j]
+                nearest = j
+        if nearest >= 0:
+            route.append(nearest)
+            visited[nearest] = True
+            total_distance += min_dist
+
+    # 回到起点
+    total_distance += dist_matrix[route[-1]][route[0]]
+
+    # 步骤3: 2-opt改进算法
+    def calculate_route_distance(r):
+        """计算路径总距离"""
+        dist = 0
+        for i in range(len(r) - 1):
+            dist += dist_matrix[r[i]][r[i + 1]]
+        dist += dist_matrix[r[-1]][r[0]]
+        return dist
+
+    improved = True
+    iterations = 0
+    max_iterations = 100
+
+    while improved and iterations < max_iterations:
+        improved = False
+        iterations += 1
+        for i in range(1, n - 1):
+            for j in range(i + 1, n):
+                # 计算交换前后的距离差
+                before = (dist_matrix[route[i - 1]][route[i]] +
+                         dist_matrix[route[j]][route[(j + 1) % n]])
+                after = (dist_matrix[route[i - 1]][route[j]] +
+                        dist_matrix[route[i]][route[(j + 1) % n]])
+                if after < before - 0.1:
+                    # 执行2-opt交换（反转i到j之间的路径段）
+                    route[i:j + 1] = route[i:j + 1][::-1]
+                    improved = True
+
+    total_distance = calculate_route_distance(route)
+
+    # 步骤4: 按天数分配游览计划
+    total_hours_available = days * max_daily_hours
+    total_recommended = sum(d.get("recommended_hours", 4) for d in destinations)
+    total_travel_time = total_distance / travel_speed  # 旅行总时间(小时)
+
+    # 按吸引力比例分配时间
+    daily_plans = []
+    current_day = 1
+    current_day_hours = 0
+    current_day_destinations = []
+
+    for idx in route:
+        dest = destinations[idx]
+        attraction = dest.get("attraction_score", 5)
+        recommended = dest.get("recommended_hours", 4)
+        # 按比例调整游览时间
+        time_ratio = total_hours_available / max(total_recommended, 1)
+        adjusted_hours = recommended * min(time_ratio, 1.2)
+
+        # 加上到下一个目的地的旅行时间
+        next_idx = route[route.index(idx) + 1] if route.index(idx) < len(route) - 1 else route[0]
+        travel_dist = dist_matrix[idx][next_idx]
+        travel_time = travel_dist / travel_speed
+
+        if current_day_hours + adjusted_hours + travel_time > max_daily_hours:
+            # 新的一天
+            daily_plans.append({
+                "day": current_day,
+                "destinations": current_day_destinations,
+                "total_hours": round(current_day_hours, 1)
+            })
+            current_day += 1
+            current_day_hours = 0
+            current_day_destinations = []
+
+        current_day_destinations.append({
+            "name": dest["name"],
+            "attraction_score": attraction,
+            "visit_hours": round(adjusted_hours, 1),
+            "next_destination": destinations[next_idx]["name"],
+            "travel_distance_km": round(travel_dist, 1),
+            "travel_time_hours": round(travel_time, 1)
+        })
+        current_day_hours += adjusted_hours + travel_time
+
+    # 添加最后一天
+    if current_day_destinations:
+        daily_plans.append({
+            "day": current_day,
+            "destinations": current_day_destinations,
+            "total_hours": round(current_day_hours, 1)
         })
 
-    return {
-        "period": period,
-        "total_records": len(sleep_records),
-        "averages": {
-            "duration_hours": round(avg_duration, 1),
-            "deep_sleep_hours": round(avg_deep, 1),
-            "rem_sleep_hours": round(avg_rem, 1),
-            "quality_score": round(avg_quality, 1),
-            "quality_level": quality_level
-        },
-        "sleep_composition": {
-            "deep_sleep_ratio": round(deep_ratio, 1),
-            "rem_sleep_ratio": round(rem_ratio, 1),
-            "light_sleep_ratio": round(100 - deep_ratio - rem_ratio, 1),
-            "deep_ideal": "15-25%",
-            "rem_ideal": "20-25%",
-            "light_ideal": "50-60%"
-        },
-        "consistency": {
-            "level": consistency,
-            "std_deviation": round(std_dev, 2),
-            "recommendation": "睡眠时间规律" if consistency == "高" else "建议固定作息时间，提高睡眠规律性"
-        },
-        "issues": issues,
-        "daily_details": daily_details,
-        "recommendations": _get_sleep_recommendations(avg_duration, avg_quality, deep_ratio, consistency)
-    }
-
-
-def _get_sleep_recommendations(avg_dur, avg_qual, deep_ratio, consistency):
-    """生成睡眠建议。"""
-    recs = []
-    if avg_dur < 7:
-        recs.append("建议每晚保证7-9小时睡眠时间")
-    if avg_dur > 9:
-        recs.append("睡眠时间偏长，建议调整至7-9小时")
-    if avg_qual < 3.5:
-        recs.append("改善睡眠环境：保持安静、适宜温度和黑暗环境")
-    if deep_ratio < 15:
-        recs.append("增加深度睡眠：避免睡前使用电子设备、减少咖啡因摄入")
-    if consistency != "高":
-        recs.append("建立规律作息：每天固定时间入睡和起床")
-    recs.append("睡前1小时避免剧烈运动和强光刺激")
-    recs.append("保持卧室温度在18-22°C最为适宜")
-    return recs
-
-
-# ---------------------------------------------------------------------------
-# 8. 购物清单生成
-# ---------------------------------------------------------------------------
-def shopping_list_generator(meals, pantry=None, store_aisles=None):
-    """
-    购物清单生成：根据餐食计划和现有库存生成购物清单。
-
-    参数:
-        meals (list[dict]): 餐食计划列表，每项含 name、ingredients (list)。
-        pantry (dict): 现有库存，键为食材名，值为数量。为None时视为空库存。
-        store_aisles (dict): 超市区域映射，键为区域名，值为食材类别列表。
-            为None时使用默认分区。
-
-    返回:
-        dict: 购物清单，按超市区域组织。
-    """
-    if pantry is None:
-        pantry = {}
-    if store_aisles is None:
-        store_aisles = {
-            "蔬菜区": ["番茄", "黄瓜", "青菜", "白菜", "胡萝卜", "洋葱", "土豆", "菠菜",
-                      "西兰花", "生菜", "茄子", "青椒", "蘑菇", "姜", "蒜", "葱"],
-            "肉类区": ["鸡肉", "猪肉", "牛肉", "鱼", "虾", "鸡蛋", "排骨", "三文鱼", "猪肉末"],
-            "主食区": ["米饭", "面条", "面包", "燕麦", "面粉", "意面", "馒头", "杂粮", "全麦面包"],
-            "调味区": ["盐", "糖", "酱油", "醋", "料酒", "橄榄油", "香油", "豆瓣酱",
-                      "黑胡椒", "蒸鱼豉油", "辣酱", "味噌", "辣椒油", "八角"],
-            "乳制品区": ["牛奶", "奶酪", "酸奶", "黄油", "奶油", "希腊酸奶"],
-            "其他": ["坚果", "蓝莓", "水果", "海苔", "泡菜", "面包丁", "帕玛森芝士",
-                    "凯撒酱", "蛋白粉", "面粉", "蜂蜜", "茶叶"]
-        }
-
-    # 汇总所需食材
-    needed = {}
-    for meal in meals:
-        ingredients = meal.get("ingredients", [])
-        if isinstance(ingredients, str):
-            ingredients = [ingredients]
-        for ing in ingredients:
-            if ing in needed:
-                needed[ing] += 1
-            else:
-                needed[ing] = 1
-
-    # 减去已有库存
-    to_buy = {}
-    for item, qty in needed.items():
-        have = pantry.get(item, 0)
-        if qty > have:
-            to_buy[item] = qty - have
-
-    # 按超市区域分组
-    organized = {}
-    unclassified = []
-
-    for item, qty in to_buy.items():
-        placed = False
-        for aisle, categories in store_aisles.items():
-            if item in categories:
-                if aisle not in organized:
-                    organized[aisle] = []
-                organized[aisle].append({
-                    "item": item,
-                    "quantity": qty,
-                    "unit": "份/个"
-                })
-                placed = True
-                break
-        if not placed:
-            unclassified.append({"item": item, "quantity": qty, "unit": "份/个"})
-
-    # 计算总项数
-    total_items = sum(len(items) for items in organized.values()) + len(unclassified)
+    # 步骤5: 统计信息
+    optimized_route_names = [destinations[i]["name"] for i in route]
 
     return {
-        "total_items": total_items,
-        "meals_planned": len(meals),
-        "items_in_pantry": len(pantry),
-        "items_to_buy": len(to_buy),
-        "organized_list": organized,
-        "unclassified": unclassified,
-        "shopping_tips": [
-            "按区域顺序购物可节省时间",
-            "生鲜食品最后购买",
-            "检查保质期，选择新鲜产品",
-            "使用购物袋减少塑料使用",
-            "对比价格选择性价比最高的商品"
-        ]
-    }
-
-
-# ---------------------------------------------------------------------------
-# 9. 穿搭推荐
-# ---------------------------------------------------------------------------
-def weather_outfit_planner(temperature, weather, occasion="casual"):
-    """
-    穿搭推荐：根据天气和场合推荐穿搭。
-
-    参数:
-        temperature (float): 温度（摄氏度）。
-        weather (str): 天气状况，如 "晴"/"多云"/"雨"/"雪"/"风"。
-        occasion (str): 场合，如 "casual"（休闲）、"formal"（正式）、
-            "sport"（运动）、"work"（工作），默认 "casual"。
-
-    返回:
-        dict: 穿搭建议，含上装、下装、鞋子和配饰。
-    """
-    # 温度区间
-    if temperature >= 30:
-        temp_level = "炎热"
-    elif temperature >= 25:
-        temp_level = "温暖"
-    elif temperature >= 18:
-        temp_level = "舒适"
-    elif temperature >= 10:
-        temp_level = "凉爽"
-    elif temperature >= 0:
-        temp_level = "寒冷"
-    else:
-        temp_level = "严寒"
-
-    # 穿搭数据库
-    outfit_db = {
-        "炎热": {
-            "casual": {"top": "短袖T恤/背心", "bottom": "短裤/短裙", "shoes": "凉鞋/帆布鞋",
-                       "accessories": ["遮阳帽", "太阳镜", "防晒霜"]},
-            "formal": {"top": "短袖衬衫", "bottom": "轻薄西裤/半裙", "shoes": "透气皮鞋",
-                        "accessories": ["太阳镜", "手帕"]},
-            "work": {"top": "短袖衬衫/Polo衫", "bottom": "轻薄西裤", "shoes": "乐福鞋",
-                      "accessories": ["太阳镜"]},
-            "sport": {"top": "速干短袖", "bottom": "运动短裤", "shoes": "运动凉鞋",
-                       "accessories": ["遮阳帽", "运动水壶"]}
-        },
-        "温暖": {
-            "casual": {"top": "短袖/T恤", "bottom": "薄长裤/牛仔裤", "shoes": "帆布鞋/运动鞋",
-                       "accessories": ["太阳镜"]},
-            "formal": {"top": "薄衬衫", "bottom": "西裤", "shoes": "皮鞋",
-                        "accessories": ["手表"]},
-            "work": {"top": "衬衫", "bottom": "西裤/半裙", "shoes": "皮鞋",
-                      "accessories": ["手表"]},
-            "sport": {"top": "速干T恤", "bottom": "运动裤", "shoes": "跑步鞋",
-                       "accessories": ["运动水壶"]}
-        },
-        "舒适": {
-            "casual": {"top": "长袖T恤/薄卫衣", "bottom": "牛仔裤/休闲裤", "shoes": "运动鞋/休闲鞋",
-                       "accessories": ["薄外套"]},
-            "formal": {"top": "衬衫+薄外套", "bottom": "西裤", "shoes": "皮鞋",
-                        "accessories": ["围巾(可选)"]},
-            "work": {"top": "衬衫+薄针织衫", "bottom": "西裤/半裙", "shoes": "皮鞋",
-                      "accessories": ["手表"]},
-            "sport": {"top": "长袖运动衣", "bottom": "运动长裤", "shoes": "跑步鞋",
-                       "accessories": ["运动水壶"]}
-        },
-        "凉爽": {
-            "casual": {"top": "卫衣/毛衣", "bottom": "厚牛仔裤/休闲裤", "shoes": "运动鞋/靴子",
-                       "accessories": ["围巾", "薄外套"]},
-            "formal": {"top": "衬衫+毛衣+外套", "bottom": "西裤", "shoes": "皮鞋",
-                        "accessories": ["围巾", "手套"]},
-            "work": {"top": "衬衫+针织衫+外套", "bottom": "西裤/半裙+打底裤", "shoes": "皮鞋/短靴",
-                      "accessories": ["围巾"]},
-            "sport": {"top": "保暖运动衣", "bottom": "运动长裤", "shoes": "跑步鞋",
-                       "accessories": ["运动手套", "保暖帽"]}
-        },
-        "寒冷": {
-            "casual": {"top": "厚毛衣/羽绒内胆", "bottom": "加绒裤", "shoes": "雪地靴/厚底鞋",
-                       "accessories": ["羽绒服", "围巾", "手套", "毛线帽"]},
-            "formal": {"top": "衬衫+毛衣+厚外套", "bottom": "加厚西裤", "shoes": "皮靴",
-                        "accessories": ["围巾", "手套", "毛线帽"]},
-            "work": {"top": "衬衫+毛衣+羽绒服", "bottom": "加绒西裤", "shoes": "短靴",
-                      "accessories": ["围巾", "手套"]},
-            "sport": {"top": "保暖运动套装", "bottom": "加绒运动裤", "shoes": "防滑运动鞋",
-                       "accessories": ["运动手套", "保暖帽", "面罩"]}
-        },
-        "严寒": {
-            "casual": {"top": "厚羽绒+毛衣", "bottom": "加绒裤+秋裤", "shoes": "雪地靴",
-                       "accessories": ["厚围巾", "厚手套", "毛线帽", "暖宝宝"]},
-            "formal": {"top": "衬衫+厚毛衣+羽绒服", "bottom": "加厚西裤+秋裤", "shoes": "厚皮靴",
-                        "accessories": ["厚围巾", "厚手套", "毛线帽"]},
-            "work": {"top": "保暖内衣+衬衫+毛衣+羽绒服", "bottom": "加绒西裤+秋裤", "shoes": "厚靴子",
-                      "accessories": ["围巾", "手套", "帽子"]},
-            "sport": {"top": "保暖内衣+抓绒+防风外套", "bottom": "加绒运动裤", "shoes": "防滑雪地鞋",
-                       "accessories": ["运动手套", "面罩", "保暖帽", "暖宝宝"]}
+        "optimized_route": optimized_route_names,
+        "route_indices": route,
+        "total_distance_km": round(total_distance, 1),
+        "total_travel_time_hours": round(total_distance / travel_speed, 1),
+        "algorithm": "最近邻贪心 + 2-opt改进",
+        "iterations": iterations,
+        "daily_plans": daily_plans[:days],
+        "statistics": {
+            "destinations_count": n,
+            "days_planned": len(daily_plans[:days]),
+            "avg_distance_per_day": round(total_distance / days, 1),
+            "total_visit_hours": round(sum(d.get("recommended_hours", 4) for d in destinations), 1),
+            "preference": preferences.get("pace", "normal")
         }
     }
 
-    # 获取基础穿搭
-    temp_outfits = outfit_db.get(temp_level, outfit_db["舒适"])
-    outfit = temp_outfits.get(occasion, temp_outfits.get("casual")).copy()
-
-    # 根据天气调整
-    weather_adjustments = {
-        "雨": {"extra": "雨伞/雨衣", "shoes_override": "防水鞋/雨靴",
-               "note": "雨天出行，注意防滑和防水"},
-        "雪": {"extra": "防水面料外套", "shoes_override": "防滑雪地靴",
-               "note": "雪天出行，注意保暖和防滑"},
-        "风": {"extra": "防风外套", "note": "大风天气，注意防风保暖"},
-        "晴": {"extra": "太阳镜" if temperature > 20 else None,
-               "note": "晴天出行，注意防晒" if temperature > 20 else "天气晴好"},
-        "多云": {"note": "天气适中，穿搭灵活"}
-    }
-
-    adjustment = weather_adjustments.get(weather, {"note": "注意查看实时天气预报"})
-    if adjustment.get("shoes_override"):
-        outfit["shoes"] = adjustment["shoes_override"]
-    if adjustment.get("extra"):
-        outfit["accessories"] = outfit.get("accessories", []) + [adjustment["extra"]]
-
-    return {
-        "temperature": temperature,
-        "temperature_level": temp_level,
-        "weather": weather,
-        "occasion": occasion,
-        "outfit": {
-            "top": outfit.get("top", ""),
-            "bottom": outfit.get("bottom", ""),
-            "shoes": outfit.get("shoes", ""),
-            "accessories": outfit.get("accessories", []),
-            "outerwear": outfit.get("outerwear", "根据体感选择")
-        },
-        "weather_note": adjustment.get("note", ""),
-        "tips": [
-            "采用洋葱式穿搭法，方便增减衣物",
-            "选择透气面料避免闷热",
-            "注意保护易受寒部位（颈、手、脚）",
-            "深色衣物吸热，浅色衣物反射阳光"
-        ]
-    }
-
 
 # ---------------------------------------------------------------------------
-# 10. 订阅管理追踪
+# 9. 购物清单优化器
 # ---------------------------------------------------------------------------
-def subscription_tracker(subscriptions, billing_cycle="monthly"):
+def shopping_list_optimizer(items, stores, budget, constraints):
     """
-    订阅管理追踪：追踪各类订阅服务的费用和使用情况。
+    购物清单优化器：多店铺比价+预算约束+贪心算法最大化购买数量/满意度。
+
+    算法原理:
+        - 多店铺比价: 对每个物品找到最低价格店铺
+        - 贪心算法: 按性价比（需求度/价格）排序，优先购买性价比高的
+        - 预算约束: 累计花费不超过预算
+        - 店铺合并: 尽量减少购物店铺数量（减少出行成本）
 
     参数:
-        subscriptions (list[dict]): 订阅列表，每项含 name、category、price、
-            billing_cycle、start_date、last_used、status。
-        billing_cycle (str): 默认计费周期筛选，如 "monthly"/"yearly"/"weekly"，
-            默认 "monthly"。
+        items (list[dict]): 购物清单，每项含name/quantity/priority(1-5)
+        stores (list[dict]): 店铺列表，每项含name和price_map(物品名→价格)
+        budget (float): 总预算
+        constraints (dict): 约束条件，如{"min_stores": 1, "prefer_single_store": True}
 
     返回:
-        dict: 订阅管理报告，含总费用、分类统计和使用建议。
+        dict: 优化后的采购方案，含purchases/store_assignments/total_cost/savings。
     """
-    now = datetime.now()
-    active_subs = [s for s in subscriptions if s.get("status", "active") == "active"]
-    total_monthly_cost = 0
-    total_yearly_cost = 0
-    category_costs = {}
-    unused_subs = []
-    expiring_soon = []
+    # 步骤1: 为每个物品找到最低价店铺
+    best_prices = {}  # item_name -> (store, price)
+    for item in items:
+        item_name = item["name"]
+        quantity = item.get("quantity", 1)
+        best_store = None
+        best_price = float('inf')
+        store_prices = []
+
+        for store in stores:
+            price = store.get("price_map", {}).get(item_name, None)
+            if price is not None:
+                store_prices.append({"store": store["name"], "price": price})
+                total_cost = price * quantity
+                if total_cost < best_price:
+                    best_price = total_cost
+                    best_store = store["name"]
+
+        best_prices[item_name] = {
+            "store": best_store,
+            "unit_price": best_price / quantity if best_price < float('inf') and quantity > 0 else 0,
+            "total_price": best_price,
+            "quantity": quantity,
+            "all_prices": store_prices
+        }
+
+    # 步骤2: 计算性价比（优先级/价格比）
+    item_values = []
+    for item in items:
+        name = item["name"]
+        priority = item.get("priority", 3)
+        price_info = best_prices.get(name, {})
+        total_price = price_info.get("total_price", float('inf'))
+        if total_price > 0 and total_price < float('inf'):
+            value_ratio = priority / total_price  # 性价比 = 优先级 / 总价
+            item_values.append({
+                "name": name,
+                "quantity": item.get("quantity", 1),
+                "priority": priority,
+                "best_store": price_info["store"],
+                "unit_price": round(price_info["unit_price"], 2),
+                "total_price": round(total_price, 2),
+                "value_ratio": value_ratio,
+                "all_prices": price_info.get("all_prices", [])
+            })
+
+    # 步骤3: 贪心选择 - 按性价比排序，优先购买高性价比物品
+    sorted_items = sorted(item_values, key=lambda x: (-x["value_ratio"], -x["priority"]))
+
+    # 步骤4: 预算约束下的购买
+    purchases = []
+    total_cost = 0
+    remaining_budget = budget
+
+    for item in sorted_items:
+        if item["total_price"] <= remaining_budget:
+            purchases.append(item)
+            total_cost += item["total_price"]
+            remaining_budget -= item["total_price"]
+        else:
+            # 预算不足，记录为未购买
+            item["status"] = "预算不足"
+            purchases.append(item)
+
+    # 步骤5: 店铺分配优化
+    # 尽量合并到少数店铺以减少出行成本
+    store_groups = defaultdict(list)
+    for p in purchases:
+        if p.get("status") != "预算不足":
+            store_groups[p["best_store"]].append(p)
+
+    # 步骤6: 如果偏好单店购买，计算每个店铺的全覆盖成本
+    prefer_single = constraints.get("prefer_single_store", False)
+    single_store_option = None
+    if prefer_single:
+        for store in stores:
+            store_total = 0
+            can_fulfill = True
+            for item in items:
+                price = store.get("price_map", {}).get(item["name"], None)
+                if price is None:
+                    can_fulfill = False
+                    break
+                store_total += price * item.get("quantity", 1)
+            if can_fulfill and store_total <= budget:
+                if single_store_option is None or store_total < single_store_option["total_cost"]:
+                    single_store_option = {
+                        "store": store["name"],
+                        "total_cost": round(store_total, 2),
+                        "items": len(items)
+                    }
+
+    # 步骤7: 计算节省
+    # 节省 = 各物品在最高价店铺购买的总价 - 优化后总价
+    max_total = 0
+    for item in items:
+        name = item["name"]
+        quantity = item.get("quantity", 1)
+        max_price = 0
+        for store in stores:
+            price = store.get("price_map", {}).get(name, 0)
+            if price > max_price:
+                max_price = price
+        max_total += max_price * quantity
+
+    savings = max_total - total_cost
+
+    # 步骤8: 店铺汇总
+    store_assignments = []
+    for store_name, store_items in store_groups.items():
+        store_total = sum(item["total_price"] for item in store_items)
+        store_assignments.append({
+            "store": store_name,
+            "item_count": len(store_items),
+            "items": [item["name"] for item in store_items],
+            "subtotal": round(store_total, 2)
+        })
+
+    store_assignments.sort(key=lambda x: -x["subtotal"])
+
+    purchased_names = [p["name"] for p in purchases if p.get("status") != "预算不足"]
+    unpurchased = [p for p in purchases if p.get("status") == "预算不足"]
+
+    return {
+        "purchases": [{"name": p["name"], "store": p["best_store"],
+                       "quantity": p["quantity"], "unit_price": p["unit_price"],
+                       "total_price": p["total_price"],
+                       "status": p.get("status", "已购买")} for p in purchases],
+        "store_assignments": store_assignments,
+        "total_cost": round(total_cost, 2),
+        "budget": budget,
+        "remaining_budget": round(remaining_budget, 2),
+        "budget_utilization": round(total_cost / budget * 100, 1) if budget > 0 else 0,
+        "savings_vs_max": round(savings, 2),
+        "items_purchased": len(purchased_names),
+        "items_unpurchased": len(unpurchased),
+        "unpurchased_items": [{"name": p["name"], "reason": p.get("status", "")} for p in unpurchased],
+        "single_store_option": single_store_option,
+        "stores_used": len(store_groups),
+        "algorithm": "贪心性价比排序 + 多店铺比价优化"
+    }
+
+
+# ---------------------------------------------------------------------------
+# 10. 订阅费用分析器
+# ---------------------------------------------------------------------------
+def subscription_cost_analyzer(subscriptions, usage_data):
+    """
+    订阅费用分析器：计算总费用+使用率分析(ROI)+取消建议+替代方案。
+
+    算法原理:
+        - 月/年费用汇总: 按计费周期换算统一费用
+        - ROI计算: ROI = 使用次数 / 月费用（每次使用成本）
+        - 取消建议: 使用率低于阈值（月使用<3次且ROI<1.0）建议取消
+        - 替代方案: 为高费用低使用率的订阅推荐更经济的替代品
+        - 年度节省: 计算取消低效订阅后的预计节省金额
+
+    参数:
+        subscriptions (list[dict]): 订阅列表，每项含:
+            - name (str): 订阅名称
+            - monthly_cost (float): 月费用
+            - billing_cycle (str): "monthly"/"yearly"
+            - category (str): 类别
+        usage_data (list[dict]): 使用数据，每项含:
+            - subscription_name (str): 订阅名称
+            - monthly_usage_count (int): 月使用次数
+            - last_used_days (int): 最后一次使用距今天数
+
+    返回:
+        dict: 订阅分析报告，含cost_summary/roi_analysis/cancellation_suggestions/alternatives。
+    """
+    # 步骤1: 费用换算（统一为月费用）
+    subscription_details = []
+    total_monthly = 0
+    total_yearly = 0
+
+    # 构建使用数据查找表
+    usage_map = {}
+    for u in usage_data:
+        usage_map[u["subscription_name"]] = u
 
     for sub in subscriptions:
-        name = sub.get("name", "未知")
-        category = sub.get("category", "其他")
-        price = sub.get("price", 0)
+        name = sub["name"]
+        monthly_cost = sub.get("monthly_cost", 0)
         cycle = sub.get("billing_cycle", "monthly")
+        category = sub.get("category", "其他")
 
-        # 转换为月费
+        # 换算月费用
         if cycle == "yearly":
-            monthly_cost = price / 12
-        elif cycle == "weekly":
-            monthly_cost = price * 4.33
-        elif cycle == "quarterly":
-            monthly_cost = price / 3
+            actual_monthly = monthly_cost / 12
         else:
-            monthly_cost = price
+            actual_monthly = monthly_cost
 
-        yearly_cost = monthly_cost * 12
-        total_monthly_cost += monthly_cost
-        total_yearly_cost += yearly_cost
+        yearly_cost = actual_monthly * 12
+        total_monthly += actual_monthly
+        total_yearly += yearly_cost
 
-        # 分类统计
-        if category not in category_costs:
-            category_costs[category] = {"monthly": 0, "count": 0, "items": []}
-        category_costs[category]["monthly"] += monthly_cost
-        category_costs[category]["count"] += 1
-        category_costs[category]["items"].append(name)
+        # 获取使用数据
+        usage = usage_map.get(name, {})
+        usage_count = usage.get("monthly_usage_count", 0)
+        last_used = usage.get("last_used_days", 999)
 
-        # 检查使用情况
-        last_used = sub.get("last_used", "")
-        if last_used:
-            try:
-                last_used_dt = datetime.strptime(last_used, "%Y-%m-%d")
-                days_unused = (now - last_used_dt).days
-                sub["days_since_last_use"] = days_unused
-                if days_unused > 30:
-                    unused_subs.append({
-                        "name": name,
-                        "category": category,
-                        "monthly_cost": round(monthly_cost, 2),
-                        "days_unused": days_unused,
-                        "recommendation": "已超过30天未使用，建议考虑取消订阅"
-                    })
-            except (ValueError, TypeError):
-                pass
+        # 步骤2: 计算ROI（每次使用成本）
+        cost_per_use = actual_monthly / usage_count if usage_count > 0 else actual_monthly
+        roi_score = usage_count / actual_monthly if actual_monthly > 0 else 0
 
-        # 检查即将到期
-        start_date = sub.get("start_date", "")
-        if start_date:
-            try:
-                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-                if cycle == "yearly":
-                    renewal_date = start_dt + timedelta(days=365)
-                else:
-                    renewal_date = start_dt + timedelta(days=30)
+        # 步骤3: 使用率评级
+        if usage_count >= 20:
+            usage_level = "高频"
+        elif usage_count >= 10:
+            usage_level = "中频"
+        elif usage_count >= 3:
+            usage_level = "低频"
+        else:
+            usage_level = "极低频"
 
-                while renewal_date < now:
-                    if cycle == "yearly":
-                        renewal_date += timedelta(days=365)
-                    else:
-                        renewal_date += timedelta(days=30)
+        # 步骤4: 取消建议判定
+        should_cancel = False
+        cancel_reason = None
+        if usage_count < 3 and last_used > 14:
+            should_cancel = True
+            cancel_reason = "使用频率极低且超过14天未使用"
+        elif cost_per_use > actual_monthly:  # 每次使用成本高于月费（不合理）
+            should_cancel = True
+            cancel_reason = f"每次使用成本{cost_per_use:.1f}元过高"
+        elif roi_score < 0.5 and last_used > 7:
+            should_cancel = True
+            cancel_reason = "ROI过低（使用次数/费用比<0.5）"
 
-                days_until_renewal = (renewal_date - now).days
-                sub["next_renewal_date"] = renewal_date.strftime("%Y-%m-%d")
-                sub["days_until_renewal"] = days_until_renewal
-
-                if days_until_renewal <= 7:
-                    expiring_soon.append({
-                        "name": name,
-                        "renewal_date": renewal_date.strftime("%Y-%m-%d"),
-                        "days_until_renewal": days_until_renewal,
-                        "cost": price
-                    })
-            except (ValueError, TypeError):
-                pass
-
-    # 分类统计排序
-    sorted_categories = sorted(category_costs.items(), key=lambda x: x[1]["monthly"], reverse=True)
-    category_summary = []
-    for cat, data in sorted_categories:
-        category_summary.append({
-            "category": cat,
-            "monthly_cost": round(data["monthly"], 2),
-            "yearly_cost": round(data["monthly"] * 12, 2),
-            "percentage": round(data["monthly"] / total_monthly_cost * 100, 1) if total_monthly_cost > 0 else 0,
-            "subscription_count": data["count"],
-            "subscriptions": data["items"]
+        subscription_details.append({
+            "name": name,
+            "category": category,
+            "monthly_cost": round(actual_monthly, 2),
+            "yearly_cost": round(yearly_cost, 2),
+            "billing_cycle": cycle,
+            "monthly_usage_count": usage_count,
+            "last_used_days_ago": last_used,
+            "cost_per_use": round(cost_per_use, 2),
+            "roi_score": round(roi_score, 2),
+            "usage_level": usage_level,
+            "should_cancel": should_cancel,
+            "cancel_reason": cancel_reason
         })
 
-    # 节省建议
-    savings_potential = sum(u["monthly_cost"] for u in unused_subs)
+    # 步骤5: 分类汇总
+    category_summary = defaultdict(lambda: {"monthly": 0, "yearly": 0, "count": 0})
+    for sub in subscription_details:
+        cat = sub["category"]
+        category_summary[cat]["monthly"] += sub["monthly_cost"]
+        category_summary[cat]["yearly"] += sub["yearly_cost"]
+        category_summary[cat]["count"] += 1
+
+    # 步骤6: 取消建议和节省计算
+    cancel_suggestions = []
+    potential_monthly_savings = 0
+    for sub in subscription_details:
+        if sub["should_cancel"]:
+            cancel_suggestions.append({
+                "name": sub["name"],
+                "monthly_cost": sub["monthly_cost"],
+                "yearly_cost": sub["yearly_cost"],
+                "reason": sub["cancel_reason"],
+                "usage_level": sub["usage_level"],
+                "last_used": f"{sub['last_used_days_ago']}天前"
+            })
+            potential_monthly_savings += sub["monthly_cost"]
+
+    # 步骤7: 替代方案推荐
+    alternatives_db = {
+        "Netflix": {"name": "多平台组合", "cost": 15, "note": "B站+爱奇艺+腾讯视频组合更便宜"},
+        "Spotify": {"name": "免费版+广告", "cost": 0, "note": "免费版功能足够日常使用"},
+        "iCloud": {"name": "Google Drive免费版", "cost": 0, "note": "15GB免费存储空间"},
+        "Adobe CC": {"name": "GIMP+Inkscape", "cost": 0, "note": "开源替代方案，功能接近"},
+        "Microsoft 365": {"name": "Google Docs", "cost": 0, "note": "免费在线办公套件"},
+    }
+
+    alternatives = []
+    for sub in cancel_suggestions:
+        alt = alternatives_db.get(sub["name"])
+        if alt:
+            alternatives.append({
+                "original": sub["name"],
+                "original_cost": sub["monthly_cost"],
+                "alternative": alt["name"],
+                "alternative_cost": alt["cost"],
+                "monthly_savings": round(sub["monthly_cost"] - alt["cost"], 2),
+                "note": alt["note"]
+            })
+
+    # 步骤8: 使用率排名
+    usage_ranking = sorted(subscription_details, key=lambda x: x["roi_score"], reverse=True)
 
     return {
-        "report_date": now.strftime("%Y-%m-%d"),
-        "billing_cycle_filter": billing_cycle,
-        "total_subscriptions": len(subscriptions),
-        "active_subscriptions": len(active_subs),
-        "total_monthly_cost": round(total_monthly_cost, 2),
-        "total_yearly_cost": round(total_yearly_cost, 2),
-        "average_per_subscription": round(total_monthly_cost / len(subscriptions), 2) if subscriptions else 0,
-        "category_breakdown": category_summary,
-        "unused_subscriptions": unused_subs,
-        "expiring_soon": expiring_soon,
-        "potential_monthly_savings": round(savings_potential, 2),
-        "potential_yearly_savings": round(savings_potential * 12, 2),
-        "recommendations": _get_subscription_recommendations(unused_subs, total_monthly_cost, savings_potential),
-        "status": "需优化" if len(unused_subs) > 2 else ("良好" if total_monthly_cost < 200 else "偏高")
+        "cost_summary": {
+            "total_monthly": round(total_monthly, 2),
+            "total_yearly": round(total_yearly, 2),
+            "subscription_count": len(subscriptions),
+            "avg_monthly_per_sub": round(total_monthly / len(subscriptions), 2) if subscriptions else 0
+        },
+        "category_breakdown": [
+            {"category": cat, "monthly_cost": round(data["monthly"], 2),
+             "yearly_cost": round(data["yearly"], 2), "count": data["count"]}
+            for cat, data in sorted(category_summary.items(), key=lambda x: -x[1]["monthly"])
+        ],
+        "subscription_details": subscription_details,
+        "usage_ranking": [
+            {"rank": i + 1, "name": s["name"], "roi_score": s["roi_score"],
+             "usage_level": s["usage_level"], "cost_per_use": s["cost_per_use"]}
+            for i, s in enumerate(usage_ranking)
+        ],
+        "cancellation_suggestions": cancel_suggestions,
+        "potential_savings": {
+            "monthly": round(potential_monthly_savings, 2),
+            "yearly": round(potential_monthly_savings * 12, 2),
+            "cancel_count": len(cancel_suggestions)
+        },
+        "alternatives": alternatives,
+        "recommendations": [
+            f"总订阅费用{total_monthly:.0f}元/月（{total_yearly:.0f}元/年）",
+            f"可取消{len(cancel_suggestions)}个低效订阅，年节省{potential_monthly_savings*12:.0f}元" if cancel_suggestions else "所有订阅使用率良好",
+            f"最划算的订阅: {usage_ranking[0]['name']}（ROI={usage_ranking[0]['roi_score']}）" if usage_ranking else ""
+        ]
     }
 
 
-def _get_subscription_recommendations(unused, total_cost, savings):
-    """生成订阅管理建议。"""
-    recs = []
-    if unused:
-        recs.append(f"发现{len(unused)}个未使用的订阅，取消后每月可节省{savings:.2f}元。")
-    if total_cost > 500:
-        recs.append("月度订阅费用偏高，建议审视各订阅的必要性。")
-    if total_cost > 200:
-        recs.append("考虑家庭共享计划或年付优惠来降低成本。")
-    recs.append("定期（每季度）审查订阅使用情况，及时取消不需要的服务。")
-    recs.append("关注各平台的优惠活动，适时切换到更优惠的套餐。")
-    return recs
-
-
 # ---------------------------------------------------------------------------
-# 主程序入口
+# 主程序测试
 # ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    print("=" * 60)
-    print("生活服务工具 - lifestyle-planner")
-    print("=" * 60)
+if __name__ == '__main__':
+    print("=" * 70)
+    print("生活服务工具 - lifestyle-planner 测试")
+    print("=" * 70)
 
-    # 演示：食谱推荐
-    print("\n[1] 食谱推荐示例:")
-    recipes = recipe_recommender(["鸡蛋", "番茄", "鸡肉"], "中餐", None, 3)
-    print(json.dumps(recipes, ensure_ascii=False, indent=2))
+    # 测试1: 营养计算器
+    print("\n1. 营养计算器测试")
+    print("-" * 40)
+    food_items = [
+        {"name": "米饭", "amount": 200},
+        {"name": "鸡胸肉", "amount": 150},
+        {"name": "西兰花", "amount": 100},
+        {"name": "苹果", "amount": 150}
+    ]
+    targets = {"calories": 2000, "protein": 60, "fat": 50, "carbs": 250, "fiber": 25}
+    nutrition = nutrition_calculator(food_items, targets)
+    print(f"营养评分: {nutrition['nutrition_score']} ({nutrition['grade']})")
+    print(f"总热量: {nutrition['total_intake'].get('calories', 0):.0f} kcal")
+    print(f"建议: {'; '.join(nutrition['recommendations'][:2])}")
 
-    # 演示：健身计划
-    print("\n[2] 健身计划示例:")
-    workout = workout_planner("beginner", "general_fitness", 3, ["徒手"])
-    print(json.dumps(workout, ensure_ascii=False, indent=2))
+    # 测试2: BMI健康评估
+    print("\n2. BMI健康评估测试")
+    print("-" * 40)
+    health = bmi_health_assessor(75, 175, 28, "male", "moderate")
+    print(f"BMI: {health['bmi']} ({health['bmi_category']})")
+    print(f"体脂率: {health['body_fat_percentage']}% ({health['body_fat_status']})")
+    print(f"BMR: {health['bmr']:.0f} kcal, TDEE: {health['tdee']:.0f} kcal")
+    print(f"理想体重: {health['ideal_weight_range']} kg")
 
-    # 演示：穿搭推荐
-    print("\n[3] 穿搭推荐示例:")
-    outfit = weather_outfit_planner(15, "多云", "casual")
-    print(json.dumps(outfit, ensure_ascii=False, indent=2))
+    # 测试3: 健身计划生成
+    print("\n3. 健身计划生成测试")
+    print("-" * 40)
+    plan = fitness_plan_generator("muscle_gain", "intermediate", 4, ["dumbbell", "barbell"])
+    print(f"目标: {plan['goal']}, 水平: {plan['level']}")
+    print(f"分割: {plan['split']}")
+    w1 = plan['weekly_plans'][0]
+    print(f"第1周({w1['phase']}): {len(w1['days'])}天")
+    d1 = w1['days'][0]
+    print(f"  Day1({d1['focus']}): {[e['name'] for e in d1['exercises'][:3]]}")
 
-    print("\n" + "=" * 60)
-    print("所有工具已就绪，可通过导入 main 模块使用。")
+    # 测试4: 预算优化器
+    print("\n4. 预算优化器测试")
+    print("-" * 40)
+    expenses = [
+        {"category": "housing", "amount": 3000, "essential": True},
+        {"category": "food", "amount": 1500, "essential": True},
+        {"category": "transport", "amount": 500, "essential": True},
+        {"category": "entertainment", "amount": 1200, "essential": False},
+        {"category": "shopping", "amount": 800, "essential": False},
+        {"category": "subscription", "amount": 300, "essential": False}
+    ]
+    budget = budget_optimizer(10000, expenses, 2000, {"housing": 0.3, "food": 0.15, "entertainment": 0.08, "shopping": 0.06})
+    print(f"当前储蓄: {budget['current_savings']}元")
+    print(f"优化后储蓄: {budget['optimized_savings']}元 (目标: {budget['savings_goal']}元)")
+    print(f"储蓄增加: {budget['total_savings_increase']}元")
+    print(f"预警: {budget['alerts'][:1]}")
+
+    # 测试5: 餐饮计划器
+    print("\n5. 餐饮计划器测试")
+    print("-" * 40)
+    food_db = [
+        {"name": "鸡胸肉", "calories": 165, "protein": 31, "fat": 3.6, "carbs": 0, "serving_size": "100g"},
+        {"name": "米饭", "calories": 130, "protein": 2.7, "fat": 0.3, "carbs": 28, "serving_size": "100g"},
+        {"name": "西兰花", "calories": 34, "protein": 2.8, "fat": 0.4, "carbs": 7, "serving_size": "100g"},
+        {"name": "鸡蛋", "calories": 147, "protein": 12.6, "fat": 9.5, "carbs": 1.1, "serving_size": "1个"},
+        {"name": "燕麦", "calories": 389, "protein": 16.9, "fat": 6.9, "carbs": 66, "serving_size": "100g"},
+        {"name": "牛奶", "calories": 54, "protein": 3.0, "fat": 3.2, "carbs": 3.4, "serving_size": "100ml"},
+        {"name": "香蕉", "calories": 89, "protein": 1.1, "fat": 0.3, "carbs": 23, "serving_size": "1根"},
+    ]
+    meal_plan = meal_planner(2000, 3, food_db, [])
+    print(f"餐数: {len(meal_plan['meals'])}")
+    print(f"总热量: {meal_plan['nutrition_summary']['total_calories']:.0f} kcal (目标: {meal_plan['nutrition_summary']['calorie_target']})")
+    print(f"多样性评分: {meal_plan['variety_score']}")
+
+    # 测试6: 习惯追踪分析
+    print("\n6. 习惯追踪分析测试")
+    print("-" * 40)
+    habit_records = []
+    base_date = datetime(2025, 1, 1)
+    for i in range(30):
+        date = (base_date + timedelta(days=i)).strftime("%Y-%m-%d")
+        completed = random.random() > 0.25  # 75%完成率
+        habit_records.append({"date": date, "completed": completed})
+    # 确保最近5天连续完成
+    for i in range(5):
+        habit_records[-(i+1)]["completed"] = True
+    habit_data = {"habit_name": "每日阅读", "records": habit_records}
+    habit_analysis = habit_tracker_streak_analyzer(habit_data)
+    print(f"当前连续: {habit_analysis['current_streak']}天")
+    print(f"最长连续: {habit_analysis['longest_streak']}天")
+    print(f"完成率: {habit_analysis['completion_rate']}% ({habit_analysis['grade']})")
+    print(f"明日完成概率: {habit_analysis['markov_chain']['predictions'][0]['predicted_completion_prob']}%")
+
+    # 测试7: 睡眠质量分析
+    print("\n7. 睡眠质量分析测试")
+    print("-" * 40)
+    sleep_records = []
+    for i in range(14):
+        sleep_records.append({
+            "date": f"2025-01-{i+1:02d}",
+            "bedtime": "23:00",
+            "wakeup": "07:00",
+            "sleep_duration": 7.5 + random.uniform(-0.5, 0.5),
+            "time_in_bed": 8.0 + random.uniform(-0.2, 0.2),
+            "deep_sleep": 1.5 + random.uniform(-0.3, 0.3),
+            "awakenings": random.randint(0, 2)
+        })
+    sleep_analysis = sleep_quality_analyzer(sleep_records)
+    print(f"睡眠评分: {sleep_analysis['quality_score']} ({sleep_analysis['grade']})")
+    print(f"平均时长: {sleep_analysis['averages']['sleep_duration_hours']}h")
+    print(f"入睡效率: {sleep_analysis['averages']['sleep_efficiency']}%")
+    print(f"规律性(σ): {sleep_analysis['regularity']['std_deviation_hours']}h")
+
+    # 测试8: 旅行路线优化
+    print("\n8. 旅行路线优化测试")
+    print("-" * 40)
+    destinations = [
+        {"name": "北京", "lat": 39.9042, "lon": 116.4074, "attraction_score": 9, "recommended_hours": 8},
+        {"name": "上海", "lat": 31.2304, "lon": 121.4737, "attraction_score": 8, "recommended_hours": 6},
+        {"name": "西安", "lat": 34.3416, "lon": 108.9398, "attraction_score": 9, "recommended_hours": 7},
+        {"name": "成都", "lat": 30.5728, "lon": 104.0668, "attraction_score": 8, "recommended_hours": 6},
+        {"name": "杭州", "lat": 30.2741, "lon": 120.1551, "attraction_score": 7, "recommended_hours": 5},
+    ]
+    travel = travel_itinerary_optimizer(destinations, 5, {"pace": "normal"}, {"max_daily_hours": 8})
+    print(f"优化路线: {' → '.join(travel['optimized_route'])}")
+    print(f"总距离: {travel['total_distance_km']} km")
+    print(f"算法: {travel['algorithm']}, 迭代{travel['iterations']}次")
+    print(f"天数: {len(travel['daily_plans'])}天")
+
+    # 测试9: 购物清单优化
+    print("\n9. 购物清单优化测试")
+    print("-" * 40)
+    shop_items = [
+        {"name": "苹果", "quantity": 2, "priority": 4},
+        {"name": "牛奶", "quantity": 3, "priority": 5},
+        {"name": "面包", "quantity": 1, "priority": 3},
+        {"name": "鸡蛋", "quantity": 2, "priority": 5},
+        {"name": "坚果", "quantity": 1, "priority": 2},
+    ]
+    stores_data = [
+        {"name": "超市A", "price_map": {"苹果": 5, "牛奶": 8, "面包": 6, "鸡蛋": 7, "坚果": 25}},
+        {"name": "超市B", "price_map": {"苹果": 4, "牛奶": 9, "面包": 5, "鸡蛋": 6, "坚果": 22}},
+        {"name": "超市C", "price_map": {"苹果": 6, "牛奶": 7, "面包": 7, "鸡蛋": 8, "坚果": 20}},
+    ]
+    shopping = shopping_list_optimizer(shop_items, stores_data, 100, {"prefer_single_store": True})
+    print(f"总花费: {shopping['total_cost']}元 (预算: {shopping['budget']}元)")
+    print(f"已购: {shopping['items_purchased']}/{len(shop_items)}件")
+    print(f"店铺数: {shopping['stores_used']}")
+    print(f"比最高价节省: {shopping['savings_vs_max']}元")
+    for sa in shopping['store_assignments']:
+        print(f"  {sa['store']}: {sa['item_count']}件, {sa['subtotal']}元")
+
+    # 测试10: 订阅费用分析
+    print("\n10. 订阅费用分析测试")
+    print("-" * 40)
+    subs = [
+        {"name": "Netflix", "monthly_cost": 45, "billing_cycle": "monthly", "category": "娱乐"},
+        {"name": "Spotify", "monthly_cost": 15, "billing_cycle": "monthly", "category": "音乐"},
+        {"name": "iCloud", "monthly_cost": 21, "billing_cycle": "monthly", "category": "存储"},
+        {"name": "Adobe CC", "monthly_cost": 68, "billing_cycle": "monthly", "category": "工具"},
+        {"name": "Gym", "monthly_cost": 200, "billing_cycle": "monthly", "category": "健康"},
+    ]
+    usage = [
+        {"subscription_name": "Netflix", "monthly_usage_count": 15, "last_used_days": 1},
+        {"subscription_name": "Spotify", "monthly_usage_count": 30, "last_used_days": 0},
+        {"subscription_name": "iCloud", "monthly_usage_count": 5, "last_used_days": 2},
+        {"subscription_name": "Adobe CC", "monthly_usage_count": 1, "last_used_days": 20},
+        {"subscription_name": "Gym", "monthly_usage_count": 8, "last_used_days": 3},
+    ]
+    sub_analysis = subscription_cost_analyzer(subs, usage)
+    print(f"总月费: {sub_analysis['cost_summary']['total_monthly']}元")
+    print(f"总年费: {sub_analysis['cost_summary']['total_yearly']}元")
+    print(f"建议取消: {sub_analysis['potential_savings']['cancel_count']}个")
+    print(f"年节省: {sub_analysis['potential_savings']['yearly']}元")
+    for r in sub_analysis['usage_ranking'][:3]:
+        print(f"  #{r['rank']} {r['name']}: ROI={r['roi_score']}, {r['usage_level']}")
+
+    print("\n" + "=" * 70)
+    print("所有测试完成！")
+    print("=" * 70)
