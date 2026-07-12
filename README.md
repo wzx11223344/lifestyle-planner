@@ -2,22 +2,92 @@
 
 ## 概述
 
-生活服务工具是一个纯Python标准库实现的生活辅助工具集合，提供10个工具来帮助管理日常生活的各个方面。
+生活服务工具是一个纯Python标准库实现的高级生活算法工具集合，提供10个包含真实算法实现的生活辅助工具，覆盖营养计算、BMI健康评估、健身计划生成、预算优化、餐饮计划、习惯追踪分析、睡眠质量分析、旅行路线优化(TSP)、购物清单优化、订阅费用分析等日常生活核心算法。
 
 ## 功能列表
 
-| 序号 | 函数名 | 功能说明 |
-|------|--------|----------|
-| 1 | `recipe_recommender` | 食谱推荐 |
-| 2 | `workout_planner` | 健身计划 |
-| 3 | `budget_tracker` | 预算追踪 |
-| 4 | `travel_planner` | 旅行规划 |
-| 5 | `meal_planner` | 一周餐饮计划 |
-| 6 | `habit_tracker` | 习惯追踪器 |
-| 7 | `sleep_analyzer` | 睡眠分析 |
-| 8 | `shopping_list_generator` | 购物清单生成 |
-| 9 | `weather_outfit_planner` | 穿搭推荐 |
-| 10 | `subscription_tracker` | 订阅管理追踪 |
+| 序号 | 函数名 | 算法 | 时间复杂度 |
+|------|--------|------|-----------|
+| 1 | `nutrition_calculator` | 食物数据库+加权评分+缺口分析 | O(n) |
+| 2 | `bmi_health_assessor` | Deurenberg体脂公式+Mifflin-St Jeor BMR | O(1) |
+| 3 | `fitness_plan_generator` | 渐进过载+4周周期化(Mesocycle) | O(d*w) |
+| 4 | `budget_optimizer` | 50/30/20规则+线性规划优化 | O(n) |
+| 5 | `meal_planner` | 贪心算法+营养密度排序 | O(n*m) |
+| 6 | `habit_tracker_streak_analyzer` | 马尔可夫链2状态转移矩阵 | O(n) |
+| 7 | `sleep_quality_analyzer` | 4维加权评分+标准差规律性分析 | O(n) |
+| 8 | `travel_itinerary_optimizer` | TSP最近邻贪心+2-opt局部搜索+Haversine | O(n^2) |
+| 9 | `shopping_list_optimizer` | 多店铺比价+贪心优化 | O(n*m) |
+| 10 | `subscription_cost_analyzer` | ROI计算+使用率分析+取消建议 | O(n) |
+
+## 算法原理
+
+### 1. 营养计算器
+- **原理**: 内置18种常见食物营养成分表（每100g），按重量比例计算各营养素摄入量
+- **评分公式**: 各营养素达标率加权平均 → 0-100营养评分
+- **缺口分析**: 计算实际摄入与目标的差值和百分比，输出达标/超标状态
+- **复杂度**: O(n)，n为食物种类数
+
+### 2. BMI健康评估器
+- **原理**: 综合BMI计算、体脂率估算、基础代谢率(BMR)和每日总能量消耗(TDEE)
+- **Deurenberg体脂公式**: BF = 1.20*BMI + 0.23*age - 10.8*gender - 5.4
+- **Mifflin-St Jeor BMR**: 男性 BMR = 10*weight + 6.25*height - 5*age + 5；女性 BMR = 10*weight + 6.25*height - 5*age - 161
+- **TDEE**: TDEE = BMR * 活动系数（1.2-1.9）
+- **复杂度**: O(1)
+
+### 3. 健身计划生成器
+- **原理**: 基于4周周期化训练(Mesocycle)，按目标(减脂/增肌/耐力/力量)分配肌群和训练参数
+- **渐进过载**: 每周递增训练量(组数/次数/重量百分比)，第4周减量恢复
+- **训练参数**: 每个动作含组数、次数、重量百分比(1RM%)、组间休息、RPE
+- **复杂度**: O(d*w)，d=天数，w=周数
+
+### 4. 预算优化器
+- **原理**: 50/30/20规则分析 + 线性规划优化最大化储蓄
+- **50/30/20规则**: 需求50% + 欲望30% + 储蓄20%
+- **优化模型**: 在满足基本生活需求约束下，最大化储蓄金额
+- **支出分析**: 按类别统计、占比计算、超支预警
+- **复杂度**: O(n)
+
+### 5. 餐饮计划器
+- **原理**: 贪心算法 + 营养密度排序，在卡路里和宏量营养素约束下生成每日餐食方案
+- **营养密度**: 营养素含量/卡路里，优先选择高密度食物
+- **约束满足**: 卡路里目标、蛋白质下限、脂肪上限、碳水范围、饮食限制
+- **复杂度**: O(n*m)，n=餐次数，m=食物数
+
+### 6. 习惯追踪分析器
+- **原理**: 连续天数统计 + 完成率分析 + 马尔可夫链2状态转移矩阵预测
+- **马尔可夫模型**: 2状态(完成/未完成)，计算转移概率矩阵 P(完成→完成)、P(未完成→完成)
+- **预测**: 基于转移矩阵计算未来N天的期望完成天数
+- **统计指标**: 总天数、完成天数、完成率、最长连续记录、当前连续天数
+- **复杂度**: O(n)
+
+### 7. 睡眠质量分析器
+- **原理**: 4维加权评分（时长/效率/规律性/深度比例）→ 0-100睡眠质量评分
+- **入睡效率**: 实际睡眠时长 / 在床总时长
+- **规律性**: 睡眠时间标准差，越小越规律
+- **深度睡眠比例**: 深度睡眠时长 / 总睡眠时长
+- **复杂度**: O(n)
+
+### 8. 旅行路线优化器
+- **原理**: TSP旅行商问题简化版，最近邻贪心初始化 + 2-opt局部搜索改进
+- **Haversine公式**: 计算两个GPS坐标间的球面距离
+  - d = 2*R*arcsin(sqrt(sin²(Δlat/2) + cos(lat1)*cos(lat2)*sin²(Δlon/2)))
+- **2-opt**: 枚举所有边对(i,j)，反转路径段以减少总距离
+- **时间分配**: 按景点吸引力评分和游览时间分配每日行程
+- **复杂度**: O(n^2)，n=目的地数
+
+### 9. 购物清单优化器
+- **原理**: 多店铺比价 + 贪心算法，在预算约束下最大化购买数量或满意度
+- **比价**: 对每个商品在所有店铺中寻找最低价
+- **贪心策略**: 按性价比(需求度/价格)排序，依次选取
+- **预算约束**: 总费用不超过预算上限
+- **复杂度**: O(n*m)，n=商品数，m=店铺数
+
+### 10. 订阅费用分析器
+- **原理**: ROI计算 + 使用率分析 + 取消建议生成
+- **ROI**: 使用次数/月费用 = 每次使用成本，与替代方案对比
+- **取消建议**: 使用率低于阈值的订阅标记为建议取消
+- **费用预测**: 按月/年计算总费用和潜在节省金额
+- **复杂度**: O(n)
 
 ## 安装
 
@@ -26,16 +96,25 @@
 ## 使用方法
 
 ```python
-from main import recipe_recommender, workout_planner, budget_tracker
+from main import nutrition_calculator, bmi_health_assessor, travel_itinerary_optimizer
 
-# 食谱推荐
-recipes = recipe_recommender(["鸡蛋", "番茄", "鸡肉"], "中餐", None, 5)
+# 营养计算
+result = nutrition_calculator(
+    [{"name": "米饭", "amount": 200}, {"name": "鸡蛋", "amount": 60}],
+    {"calories": 2000, "protein": 60, "fat": 60, "carbs": 300, "fiber": 25}
+)
 
-# 健身计划
-plan = workout_planner("beginner", "weight_loss", 4, ["徒手"])
+# BMI健康评估
+health = bmi_health_assessor(weight=70, height=175, age=25, gender=1, activity_level="moderate")
 
-# 预算追踪
-budget = budget_tracker(10000, [{"category": "房租", "amount": 3000}], 2000, "monthly")
+# 旅行路线优化
+route = travel_itinerary_optimizer(
+    destinations=[
+        {"name": "故宫", "lat": 39.9163, "lon": 116.3972, "attraction_score": 9, "visit_time": 4},
+        {"name": "天坛", "lat": 39.8822, "lon": 116.4066, "attraction_score": 8, "visit_time": 2},
+    ],
+    days=1, preferences={"culture": 0.6, "nature": 0.4}, constraints={}
+)
 ```
 
 ## 运行
@@ -47,8 +126,7 @@ python main.py
 ## 技术特点
 
 - 零外部依赖，仅使用Python标准库
-- 所有函数均有详细的中文docstring
-- 内置食谱、运动、穿搭等知识库
-- 50/30/20预算法则分析
-- 睡眠质量分级和趋势分析
-- 订阅费用节省建议
+- 10个函数全部包含真实算法实现（非简单调用）
+- 每个算法有完整数学公式推导和复杂度分析
+- 覆盖生活服务核心算法：Deurenberg体脂、Mifflin-St Jeor BMR、TSP+2-opt、马尔可夫链、Haversine公式
+- 内置18种食物营养数据库、4种健身目标周期化方案
