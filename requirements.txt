@@ -1,0 +1,2 @@
+# lifestyle-planner 无外部依赖
+# 仅使用Python标准库（json, random, datetime）
