@@ -1,4 +1,6 @@
 # lifestyle-planner 生活服务工具
+[![CI](https://github.com/wzx11223344/lifestyle-planner/actions/workflows/ci.yml/badge.svg)](https://github.com/wzx11223344/lifestyle-planner/actions/workflows/ci.yml)
+
 
 ## 概述
 
